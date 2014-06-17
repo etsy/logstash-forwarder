@@ -37,43 +37,47 @@ func Prospect(fileconfig FileConfig, output chan *FileEvent) {
 
 func resume_tracking(fileconfig FileConfig, fileinfo map[string]os.FileInfo, output chan *FileEvent) {
 	// Start up with any registrar data.
+
 	history, err := os.Open(".lumberjack")
-	if err == nil {
-		historical_state := make(map[string]*FileState)
-		log.Printf("Loading registrar data\n")
-		decoder := json.NewDecoder(history)
-		decoder.Decode(&historical_state)
-		history.Close()
+    if err != nil {
+        log.Printf("unable to open lumberjack history file: %v", err.Error())
+        return
+    }
 
-		for path, state := range historical_state {
-			// if the file is the same inode/device as we last saw,
-			// start a harvester on it at the last known position
-			info, err := os.Stat(path)
-			if err != nil {
-				continue
-			}
+    historical_state := make(map[string]*FileState)
+    log.Printf("Loading registrar data\n")
+    decoder := json.NewDecoder(history)
+    decoder.Decode(&historical_state)
+    history.Close()
 
-			if is_file_same(path, info, state) {
-				// same file, seek to last known position
-				fileinfo[path] = info
+    for path, state := range historical_state {
+        // if the file is the same inode/device as we last saw,
+        // start a harvester on it at the last known position
+        info, err := os.Stat(path)
+        if err != nil {
+            continue
+        }
 
-				for _, pathglob := range fileconfig.Paths {
-					match, _ := filepath.Match(pathglob, path)
-					if match {
-						harvester := Harvester{Path: path, Fields: fileconfig.Fields, Offset: state.Offset}
-						go harvester.Harvest(output)
-						break
-					}
-				}
-			}
-		}
-	}
+        if is_file_same(path, info, state) {
+            // same file, seek to last known position
+            fileinfo[path] = info
+
+            for _, pathglob := range fileconfig.Paths {
+                match, _ := filepath.Match(pathglob, path)
+                if match {
+                    harvester := Harvester{Path: path, Fields: fileconfig.Fields, Offset: state.Offset}
+                    go harvester.Harvest(output)
+                    break
+                }
+            }
+        }
+    }
 }
 
 func prospector_scan(path string, fields map[string]string,
 	fileinfo map[string]os.FileInfo,
 	output chan *FileEvent) {
-	//log.Printf("Prospecting %s\n", path)
+	log.Printf("Prospecting %v", path)
 
 	// Evaluate the path as a wildcards/shell glob
 	matches, err := filepath.Glob(path)
