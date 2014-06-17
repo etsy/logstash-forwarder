@@ -8,12 +8,14 @@ import (
 	"time"
 )
 
-var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
-var spool_size = flag.Uint64("spool-size", 1024, "Maximum number of events to spool before a flush is forced.")
-var idle_timeout = flag.Duration("idle-flush-time", 5*time.Second, "Maximum time to wait for a full spool before flushing anyway")
-var config_file = flag.String("config", "", "The config file to load")
-var use_syslog = flag.Bool("log-to-syslog", false, "Log to syslog instead of stdout")
-var from_beginning = flag.Bool("from-beginning", false, "Read new files from the beginning, instead of the end")
+var (
+	cpuprofile     = flag.String("cpuprofile", "", "write cpu profile to file")
+	spool_size     = flag.Uint64("spool-size", 1024, "Maximum number of events to spool before a flush is forced.")
+	idle_timeout   = flag.Duration("idle-flush-time", 5*time.Second, "Maximum time to wait for a full spool before flushing anyway")
+	config_file    = flag.String("config", "", "The config file to load")
+	use_syslog     = flag.Bool("log-to-syslog", false, "Log to syslog instead of stdout")
+	from_beginning = flag.Bool("from-beginning", false, "Read new files from the beginning, instead of the end")
+)
 
 func main() {
 	flag.Parse()
@@ -22,7 +24,7 @@ func main() {
 
 	config, err := LoadConfig(*config_file)
 	if err != nil {
-        log.Fatal(err.Error())
+		log.Fatal(err.Error())
 	}
 
 	event_chan := make(chan *FileEvent, 16)
