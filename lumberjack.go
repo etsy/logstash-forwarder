@@ -18,22 +18,11 @@ var from_beginning = flag.Bool("from-beginning", false, "Read new files from the
 func main() {
 	flag.Parse()
 
-	if *cpuprofile != "" {
-		f, err := os.Create(*cpuprofile)
-		if err != nil {
-			log.Fatal(err)
-		}
-		pprof.StartCPUProfile(f)
-		go func() {
-			time.Sleep(60 * time.Second)
-			pprof.StopCPUProfile()
-			panic("done")
-		}()
-	}
+	startCPUProfile()
 
 	config, err := LoadConfig(*config_file)
 	if err != nil {
-		return
+        log.Fatal(err.Error())
 	}
 
 	event_chan := make(chan *FileEvent, 16)
@@ -71,3 +60,18 @@ func main() {
 	// registrar records last acknowledged positions in all files.
 	Registrar(registrar_chan)
 } /* main */
+
+func startCPUProfile() {
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+		go func() {
+			time.Sleep(60 * time.Second)
+			pprof.StopCPUProfile()
+			panic("done")
+		}()
+	}
+}
