@@ -74,19 +74,19 @@ func Publishv1(input chan []*FileEvent,
 				oops(err)
 				continue
 			}
-			binary.Write(socket, binary.BigEndian, uint32(len(events)))
+			err = binary.Write(socket, binary.BigEndian, uint32(len(events)))
 			if err != nil {
 				oops(err)
 				continue
 			}
 
 			// Write compressed frame
-			socket.Write([]byte("1C"))
+			_, err = socket.Write([]byte("1C"))
 			if err != nil {
 				oops(err)
 				continue
 			}
-			binary.Write(socket, binary.BigEndian, uint32(len(compressed_payload)))
+			err = binary.Write(socket, binary.BigEndian, uint32(len(compressed_payload)))
 			if err != nil {
 				oops(err)
 				continue
