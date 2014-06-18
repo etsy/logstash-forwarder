@@ -1,19 +1,26 @@
 package main
 
 import (
+	"bytes"
+	"fmt"
 	"log"
 )
 
 func Registrar(input chan []*FileEvent) {
 	for events := range input {
 		state := make(map[string]*FileState)
-		log.Printf("Registrar received %d events\n", len(events))
+		counts := make(map[string]int)
 		// Take the last event found for each file source
 		for _, event := range events {
 			// skip stdin
 			if *event.Source == "-" {
 				continue
 			}
+
+			if event.Source != nil {
+				counts[*event.Source] += 1
+			}
+
 			// have to dereference the FileInfo here because os.FileInfo is an
 			// interface, not a struct, so Go doesn't have smarts to call the Sys()
 			// method on a pointer to os.FileInfo. :(
@@ -28,6 +35,13 @@ func Registrar(input chan []*FileEvent) {
 			}
 			//log.Printf("State %s: %d\n", *event.Source, event.Offset)
 		}
+
+		var buf bytes.Buffer
+		for name, count := range counts {
+			fmt.Fprintf(&buf, "%s: %d ", name, count)
+		}
+
+		log.Printf("Registrar received %d events. %s\n", len(events), buf.String())
 
 		if len(state) > 0 {
 			WriteRegistry(state, ".lumberjack")
