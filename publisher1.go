@@ -25,6 +25,8 @@ func init() {
 	rand.Seed(time.Now().UnixNano())
 }
 
+var publisherId = 0
+
 func Publishv1(input chan []*FileEvent,
 	registrar chan []*FileEvent,
 	config *NetworkConfig) {
@@ -32,9 +34,14 @@ func Publishv1(input chan []*FileEvent,
 	var socket *tls.Conn
 	var sequence uint32
 	var err error
+    id := publisherId
+    publisherId++
 
-	socket = connect(config)
-	defer socket.Close()
+	socket = connect(config, id)
+	defer func() {
+        log.Printf("publisher %v done", id)
+        socket.Close()
+    }()
 
 	for events := range input {
 		buffer.Truncate(0)
@@ -59,7 +66,7 @@ func Publishv1(input chan []*FileEvent,
 			log.Printf("Socket error, will reconnect: %s\n", err)
 			time.Sleep(1 * time.Second)
 			socket.Close()
-			socket = connect(config)
+			socket = connect(config, id)
 		}
 
 	SendPayload:
@@ -105,7 +112,7 @@ func Publishv1(input chan []*FileEvent,
 				if err != nil {
 					log.Printf("Read error looking for ack: %s\n", err)
 					socket.Close()
-					socket = connect(config)
+					socket = connect(config, id)
 					continue SendPayload // retry sending on new connection
 				} else {
 					ackbytes += n
@@ -122,7 +129,7 @@ func Publishv1(input chan []*FileEvent,
 	} /* for each event payload */
 } // Publish
 
-func connect(config *NetworkConfig) (socket *tls.Conn) {
+func connect(config *NetworkConfig, id int) (socket *tls.Conn) {
 	var tlsconfig tls.Config
 
 	if len(config.SSLCertificate) > 0 && len(config.SSLKey) > 0 {
@@ -162,11 +169,11 @@ func connect(config *NetworkConfig) (socket *tls.Conn) {
 	for {
 		// Pick a random server from the list.
 		address := config.Servers[rand.Int()%len(config.Servers)]
-		log.Printf("Connecting to %s\n", address)
+		log.Printf("Connecting publisher %v to %s\n", id, address)
 
 		tcpsocket, err := net.DialTimeout("tcp", address, config.timeout)
 		if err != nil {
-			log.Printf("Failure connecting to %s: %s\n", address, err)
+			log.Printf("Failure connecting publisher %v to %s: %s\n", id, address, err)
 			time.Sleep(1 * time.Second)
 			continue
 		}
@@ -181,12 +188,12 @@ func connect(config *NetworkConfig) (socket *tls.Conn) {
 			continue
 		}
 
-		log.Printf("Connected to %s\n", address)
+		log.Printf("Publisher %v connected to %s\n", id, address)
 
 		// connected, let's rock and roll.
 		return
 	}
-	return
+    panic("not reached")
 }
 
 func writeDataFrame(event *FileEvent, sequence uint32, output io.Writer) {

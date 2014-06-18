@@ -59,6 +59,7 @@ func main() {
 	go Spool(event_chan, publisher_chan, *spool_size, *idle_timeout)
 
     for i := 0; i < runtime.NumCPU() * 2; i++ {
+        log.Printf("adding publish worker")
         go Publishv1(publisher_chan, registrar_chan, &config.Network)
     }
 
