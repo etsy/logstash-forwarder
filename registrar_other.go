@@ -8,6 +8,20 @@ import (
 	"os"
 )
 
+func loadRegistry(fname string) (map[string]*FileState, error) {
+	f, err := os.Open(fname)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	var existingState map[string]*FileState
+	if err := json.NewDecoder(f).Decode(&existingState); err != nil {
+		return nil, err
+	}
+	return existingState, nil
+}
+
 func WriteRegistry(state map[string]*FileState, path string) {
 	// Open tmp file, write, flush, rename
 	file, err := os.Create(".lumberjack.new")
@@ -17,8 +31,21 @@ func WriteRegistry(state map[string]*FileState, path string) {
 	}
 	defer file.Close()
 
-	encoder := json.NewEncoder(file)
-	encoder.Encode(state)
+	existingState, err := loadRegistry(path)
+	if err != nil {
+		log.Printf("Failed to read existing state at path %s: %s", path, err.Error())
+		existingState = make(map[string]*FileState)
+	}
 
-	os.Rename(".lumberjack.new", path)
+	for name, fs := range state {
+		existingState[name] = fs
+	}
+
+	if err := json.NewEncoder(file).Encode(existingState); err != nil {
+		log.Printf("Failed to write log state to file: %v", err)
+		return
+	}
+	if err := os.Rename(".lumberjack.new", path); err != nil {
+		log.Printf("Failed to move log state file: %v", err)
+	}
 }

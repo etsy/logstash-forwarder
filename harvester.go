@@ -32,9 +32,9 @@ func (h *Harvester) Harvest(output chan *FileEvent) {
 	var line uint64 = 0 // Ask registrar about the line number
 
 	// get current offset in file
-	offset, _ := h.file.Seek(0, os.SEEK_CUR)
+	h.Offset, _ = h.file.Seek(0, os.SEEK_CUR)
 
-	log.Printf("Current file offset: %d\n", offset)
+	log.Printf("Current file offset: %d\n", h.Offset)
 
 	// TODO(sissel): Make the buffer size tunable at start-time
 	reader := bufio.NewReaderSize(h.file, 16<<10) // 16kb buffer by default
@@ -49,10 +49,10 @@ func (h *Harvester) Harvest(output chan *FileEvent) {
 				// timed out waiting for data, got eof.
 				// Check to see if the file was truncated
 				info, _ := h.file.Stat()
-				if info.Size() < offset {
-					log.Printf("File truncated, seeking to beginning: %s\n", h.Path)
+				if info.Size() < h.Offset {
+					log.Printf("Current offset: %d file size: %d. Seeking to beginning because we believe the file to be truncated: %s", h.Offset, info.Size(), h.Path)
 					h.file.Seek(0, os.SEEK_SET)
-					offset = 0
+					h.Offset = 0
 				} else if age := time.Since(last_read_time); age > (24 * time.Hour) {
 					// if last_read_time was more than 24 hours ago, this file is probably
 					// dead. Stop watching it.
@@ -68,22 +68,23 @@ func (h *Harvester) Harvest(output chan *FileEvent) {
 			}
 		}
 		last_read_time = time.Now()
-
-		offset += int64(len(text))
+		rawTextWidth := int64(len(text))
 		text = strings.TrimSpace(text)
 		line++
 
-		if text == "" {
-			continue
-		}
-
 		event := &FileEvent{
 			Source:   &h.Path,
-			Offset:   offset,
+			Offset:   h.Offset,
 			Line:     line,
 			Text:     &text,
 			Fields:   &h.Fields,
 			fileinfo: &info,
+		}
+
+		h.Offset += rawTextWidth
+
+		if text == "" {
+			continue
 		}
 
 		output <- event // ship the new event downstream
