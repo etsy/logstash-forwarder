@@ -4,7 +4,7 @@ import (
 	"flag"
 	"log"
 	"os"
-    "runtime"
+	"runtime"
 	"runtime/pprof"
 	"time"
 )
@@ -58,10 +58,10 @@ func main() {
 	// Harvesters dump events into the spooler.
 	go Spool(event_chan, publisher_chan, *spool_size, *idle_timeout)
 
-    for i := 0; i < runtime.NumCPU() * 2; i++ {
-        log.Printf("adding publish worker")
-        go Publishv1(publisher_chan, registrar_chan, &config.Network)
-    }
+	for i := 0; i < runtime.NumCPU()*2; i++ {
+		log.Printf("adding publish worker")
+		go Publishv1(publisher_chan, registrar_chan, &config.Network)
+	}
 
 	// registrar records last acknowledged positions in all files.
 	Registrar(registrar_chan)
