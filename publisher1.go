@@ -34,14 +34,14 @@ func Publishv1(input chan []*FileEvent,
 	var socket *tls.Conn
 	var sequence uint32
 	var err error
-    id := publisherId
-    publisherId++
+	id := publisherId
+	publisherId++
 
 	socket = connect(config, id)
 	defer func() {
-        log.Printf("publisher %v done", id)
-        socket.Close()
-    }()
+		log.Printf("publisher %v done", id)
+		socket.Close()
+	}()
 
 	for events := range input {
 		buffer.Truncate(0)
@@ -193,7 +193,7 @@ func connect(config *NetworkConfig, id int) (socket *tls.Conn) {
 		// connected, let's rock and roll.
 		return
 	}
-    panic("not reached")
+	panic("not reached")
 }
 
 func writeDataFrame(event *FileEvent, sequence uint32, output io.Writer) {

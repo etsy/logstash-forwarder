@@ -7,11 +7,11 @@ import (
 )
 
 func Registrar(input chan []*FileEvent) {
-	for events := range input {
+	for page := range input {
 		state := make(map[string]*FileState)
 		counts := make(map[string]int)
 		// Take the last event found for each file source
-		for _, event := range events {
+		for _, event := range page {
 			// skip stdin
 			if *event.Source == "-" {
 				continue
@@ -41,7 +41,7 @@ func Registrar(input chan []*FileEvent) {
 			fmt.Fprintf(&buf, "%s: %d ", name, count)
 		}
 
-		log.Printf("Registrar received %d events. %s\n", len(events), buf.String())
+		log.Printf("Registrar received %d events. %s\n", len(page), buf.String())
 
 		if len(state) > 0 {
 			WriteRegistry(state, ".lumberjack")

@@ -2,10 +2,10 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"io"
 	"log"
 	"os" // for File and friends
+	"strings"
 	"time"
 )
 
@@ -32,9 +32,9 @@ func (h *Harvester) Harvest(output chan *FileEvent) {
 	var line uint64 = 0 // Ask registrar about the line number
 
 	// get current offset in file
-	offset, _ := h.file.Seek(0, os.SEEK_CUR)
+	h.Offset, _ = h.file.Seek(0, os.SEEK_CUR)
 
-	log.Printf("Current file offset: %d\n", offset)
+	log.Printf("Current file offset: %d\n", h.Offset)
 
 	// TODO(sissel): Make the buffer size tunable at start-time
 	reader := bufio.NewReaderSize(h.file, 16<<10) // 16kb buffer by default
@@ -49,10 +49,10 @@ func (h *Harvester) Harvest(output chan *FileEvent) {
 				// timed out waiting for data, got eof.
 				// Check to see if the file was truncated
 				info, _ := h.file.Stat()
-				if info.Size() < offset {
-					log.Printf("File truncated, seeking to beginning: %s\n", h.Path)
+				if info.Size() < h.Offset {
+					log.Printf("Current offset: %d file size: %d. Seeking to beginning because we believe the file to be truncated: %s", h.Offset, info.Size(), h.Path)
 					h.file.Seek(0, os.SEEK_SET)
-					offset = 0
+					h.Offset = 0
 				} else if age := time.Since(last_read_time); age > (24 * time.Hour) {
 					// if last_read_time was more than 24 hours ago, this file is probably
 					// dead. Stop watching it.
@@ -68,17 +68,24 @@ func (h *Harvester) Harvest(output chan *FileEvent) {
 			}
 		}
 		last_read_time = time.Now()
-
+		rawTextWidth := int64(len(text))
+		text = strings.TrimSpace(text)
 		line++
+
 		event := &FileEvent{
 			Source:   &h.Path,
-			Offset:   offset,
+			Offset:   h.Offset,
 			Line:     line,
-			Text:     text,
+			Text:     &text,
 			Fields:   &h.Fields,
 			fileinfo: &info,
 		}
-		offset += int64(len(*event.Text)) + 1 // +1 because of the line terminator
+
+		h.Offset += rawTextWidth
+
+		if text == "" {
+			continue
+		}
 
 		output <- event // ship the new event downstream
 	} /* forever */
@@ -116,38 +123,26 @@ func (h *Harvester) open() *os.File {
 	return h.file
 }
 
-func (h *Harvester) readline(reader *bufio.Reader, eof_timeout time.Duration) (*string, error) {
-	var buffer bytes.Buffer
+func (h *Harvester) readline(reader *bufio.Reader, eof_timeout time.Duration) (string, error) {
 	start_time := time.Now()
+ReadLines:
 	for {
-		segment, is_partial, err := reader.ReadLine()
-
-		if err != nil {
-			if err == io.EOF {
-				time.Sleep(1 * time.Second) // TODO(sissel): Implement backoff
-
-				// Give up waiting for data after a certain amount of time.
-				// If we time out, return the error (eof)
-				if time.Since(start_time) > eof_timeout {
-					return nil, err
-				}
-				continue
-			} else {
-				log.Println(err)
-				return nil, err // TODO(sissel): don't do this?
+		line, err := reader.ReadString('\n')
+		switch err {
+		case io.EOF:
+			if line != "" {
+				return line, nil
 			}
+			time.Sleep(1 * time.Second)
+			if time.Since(start_time) > eof_timeout {
+				return "", err
+			}
+			continue ReadLines
+		case nil:
+		default:
+			log.Println(err)
+			return "", err
 		}
-
-		// TODO(sissel): if buffer exceeds a certain length, maybe report an error condition? chop it?
-		buffer.Write(segment)
-
-		if !is_partial {
-			// If we got a full line, return the whole line.
-			str := new(string)
-			*str = buffer.String()
-			return str, nil
-		}
-	} /* forever read chunks */
-
-	return nil, nil
+		return line, nil
+	}
 }
