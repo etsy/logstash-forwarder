@@ -10,13 +10,14 @@ import (
 )
 
 var (
-	cpuprofile     = flag.String("cpuprofile", "", "write cpu profile to file")
-	spool_size     = flag.Uint64("spool-size", 1024, "Maximum number of events to spool before a flush is forced.")
-	num_workers    = flag.Int("num-workers", runtime.NumCPU()*2, "Number of concurrent publish workers. Defaults to 2*CPU")
-	idle_timeout   = flag.Duration("idle-flush-time", 5*time.Second, "Maximum time to wait for a full spool before flushing anyway")
-	config_file    = flag.String("config", "", "The config file to load")
-	use_syslog     = flag.Bool("log-to-syslog", false, "Log to syslog instead of stdout")
-	from_beginning = flag.Bool("from-beginning", false, "Read new files from the beginning, instead of the end")
+	default_workers = runtime.NumCPU() * 2
+	cpuprofile      = flag.String("cpuprofile", "", "write cpu profile to file")
+	spool_size      = flag.Uint64("spool-size", 1024, "Maximum number of events to spool before a flush is forced.")
+	num_workers     = flag.Int("num-workers", default_workers, "Number of concurrent publish workers. Defaults to 2*CPU")
+	idle_timeout    = flag.Duration("idle-flush-time", 5*time.Second, "Maximum time to wait for a full spool before flushing anyway")
+	config_file     = flag.String("config", "", "The config file to load")
+	use_syslog      = flag.Bool("log-to-syslog", false, "Log to syslog instead of stdout")
+	from_beginning  = flag.Bool("from-beginning", false, "Read new files from the beginning, instead of the end")
 )
 
 func main() {
@@ -60,7 +61,7 @@ func main() {
 	go Spool(event_chan, publisher_chan, *spool_size, *idle_timeout)
 
 	if *num_workers <= 0 {
-		*num_workers = runtime.NumCPU() * 2
+		*num_workers = default_workers
 	}
 	for i := 0; i < *num_workers; i++ {
 		log.Printf("adding publish worker")
