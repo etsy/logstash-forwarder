@@ -12,6 +12,7 @@ import (
 var (
 	cpuprofile     = flag.String("cpuprofile", "", "write cpu profile to file")
 	spool_size     = flag.Uint64("spool-size", 1024, "Maximum number of events to spool before a flush is forced.")
+	num_workers    = flag.Int("num-workers", runtime.NumCPU()*2, "Number of concurrent publish workers. Defaults to 2*CPU")
 	idle_timeout   = flag.Duration("idle-flush-time", 5*time.Second, "Maximum time to wait for a full spool before flushing anyway")
 	config_file    = flag.String("config", "", "The config file to load")
 	use_syslog     = flag.Bool("log-to-syslog", false, "Log to syslog instead of stdout")
@@ -58,7 +59,7 @@ func main() {
 	// Harvesters dump events into the spooler.
 	go Spool(event_chan, publisher_chan, *spool_size, *idle_timeout)
 
-	for i := 0; i < runtime.NumCPU()*2; i++ {
+	for i := 0; i < *num_workers; i++ {
 		log.Printf("adding publish worker")
 		go Publishv1(publisher_chan, registrar_chan, &config.Network)
 	}
