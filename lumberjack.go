@@ -59,6 +59,9 @@ func main() {
 	// Harvesters dump events into the spooler.
 	go Spool(event_chan, publisher_chan, *spool_size, *idle_timeout)
 
+	if *num_workers <= 0 {
+		*num_workers = runtime.NumCPU() * 2
+	}
 	for i := 0; i < *num_workers; i++ {
 		log.Printf("adding publish worker")
 		go Publishv1(publisher_chan, registrar_chan, &config.Network)
