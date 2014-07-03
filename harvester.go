@@ -11,11 +11,11 @@ import (
 
 // type Harvester is responsible for tailing a single log file and emitting FileEvents.
 type Harvester struct {
-	Path   string /* the file path to harvest */
+	Path   string
 	Fields map[string]string
 	Offset int64
 
-	file *os.File /* the file being watched */
+	file *os.File
 }
 
 func (h *Harvester) Harvest(output chan *FileEvent) {
@@ -26,14 +26,19 @@ func (h *Harvester) Harvest(output chan *FileEvent) {
 	}
 
 	h.open()
-	info, _ := h.file.Stat() // TODO(sissel): Check error
+	info, err := h.file.Stat()
+	if err != nil {
+		log.Printf("ERROR: unable to stat file %s: %v\n", h.Path, err)
+	}
 	defer h.file.Close()
-	//info, _ := file.Stat()
 
 	var line uint64 = 0 // Ask registrar about the line number
 
 	// get current offset in file
-	h.Offset, _ = h.file.Seek(0, os.SEEK_CUR)
+	h.Offset, err = h.file.Seek(0, os.SEEK_CUR)
+	if err != nil {
+		log.Printf("ERROR: unable to seek in file %s: %v\n", h.Path, err)
+	}
 
 	log.Printf("Current file offset: %d\n", h.Offset)
 
@@ -88,8 +93,8 @@ func (h *Harvester) Harvest(output chan *FileEvent) {
 			continue
 		}
 
-		output <- event // ship the new event downstream
-	} /* forever */
+		output <- event
+	}
 }
 
 func (h *Harvester) open() *os.File {

@@ -46,6 +46,7 @@ func setupLogging() {
 func main() {
 	flag.Parse()
 	setupLogging()
+	log.Println("lumberjack starting")
 
 	startCPUProfile()
 
@@ -61,8 +62,6 @@ func main() {
 	if len(config.Files) == 0 {
 		log.Fatalf("No paths given. What files do you want me to watch?\n")
 	}
-
-	log.Println("lumberjack starting")
 
 	// Prospect the globs/paths given on the command line and launch harvesters
 	for _, fileconfig := range config.Files {
