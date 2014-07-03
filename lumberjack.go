@@ -4,6 +4,7 @@ import (
 	"flag"
 	"log"
 	"os"
+	"os/signal"
 	"runtime"
 	"runtime/pprof"
 	"time"
@@ -19,6 +20,13 @@ var (
 	use_syslog      = flag.Bool("log-to-syslog", false, "Log to syslog instead of stdout")
 	from_beginning  = flag.Bool("from-beginning", false, "Read new files from the beginning, instead of the end")
 )
+
+func awaitSignals() {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, os.Kill)
+	<-c
+	log.Println("lumberjack shutting down")
+}
 
 func main() {
 	flag.Parse()
@@ -69,7 +77,8 @@ func main() {
 	}
 
 	// registrar records last acknowledged positions in all files.
-	Registrar(registrar_chan)
+	go Registrar(registrar_chan)
+	awaitSignals()
 }
 
 func startCPUProfile() {
