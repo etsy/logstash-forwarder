@@ -27,13 +27,14 @@ type FileConfig struct {
 }
 
 func LoadConfig(path string) (config Config, err error) {
-	config_file, err := os.Open(path)
+	f, err := os.Open(path)
 	if err != nil {
 		log.Printf("Failed to open config file '%s': %s\n", path, err)
 		return
 	}
+	defer f.Close()
 
-	fi, _ := config_file.Stat()
+	fi, _ := f.Stat()
 	if fi.Size() > (10 << 20) {
 		log.Printf("Config file too large? Aborting, just in case. '%s' is %d bytes\n",
 			path, fi)
@@ -41,7 +42,7 @@ func LoadConfig(path string) (config Config, err error) {
 	}
 
 	buffer := make([]byte, fi.Size())
-	_, err = config_file.Read(buffer)
+	_, err = f.Read(buffer)
 	log.Printf("%s\n", buffer)
 
 	err = json.Unmarshal(buffer, &config)
