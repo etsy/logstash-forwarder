@@ -5,16 +5,20 @@ import (
 	"testing"
 )
 
-type FileConfig struct {
-	Paths  []string          "json:paths"
-	Fields map[string]string "json:fields"
+var source = []byte(`
+{
+    "paths": [
+        "/var/log/fail2ban.log"
+    ],
+    "fields": {
+        "type": "fail2ban"
+    }
 }
+`)
 
 func TestJSONLoading(t *testing.T) {
-	var f File
-	err := json.Unmarshal([]byte("{ \"paths\": [ \"/var/log/fail2ban.log\" ], \"fields\": { \"type\": \"fail2ban\" } }"), &f)
-
-	if err != nil {
+	var f FileConfig
+	if err := json.Unmarshal(source, &f); err != nil {
 		t.Fatalf("json.Unmarshal failed")
 	}
 	if len(f.Paths) != 1 {
