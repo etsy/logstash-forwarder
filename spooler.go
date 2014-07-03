@@ -4,6 +4,7 @@ import (
 	"time"
 )
 
+// buffers events until ready to flush to the publisher
 func Spool(input chan *FileEvent,
 	output chan []*FileEvent,
 	max_size uint64,

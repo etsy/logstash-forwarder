@@ -8,6 +8,7 @@ import (
 	"time"
 )
 
+// finds files in paths/globs to harvest, starts harvesters
 func Prospect(fileconfig FileConfig, output chan *FileEvent) {
 	fileinfo := make(map[string]os.FileInfo)
 

@@ -6,6 +6,7 @@ import (
 	"log"
 )
 
+// records positions of files read
 func Registrar(input chan []*FileEvent) {
 	for page := range input {
 		state := make(map[string]*FileState)

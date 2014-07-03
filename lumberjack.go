@@ -1,3 +1,11 @@
+// The basic model of execution:
+// - prospector: finds files in paths/globs to harvest, starts harvesters
+// - harvester: reads a file, sends events to the spooler
+// - spooler: buffers events until ready to flush to the publisher
+// - publisher: writes to the network, notifies registrar
+// - registrar: records positions of files read
+// Finally, prospector uses the registrar information, on restart, to
+// determine where in each file to resume a harvester.
 package main
 
 import (
@@ -28,8 +36,16 @@ func awaitSignals() {
 	log.Println("lumberjack shutting down")
 }
 
+func setupLogging() {
+	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
+	if *use_syslog {
+		configureSyslog()
+	}
+}
+
 func main() {
 	flag.Parse()
+	setupLogging()
 
 	startCPUProfile()
 
@@ -46,19 +62,7 @@ func main() {
 		log.Fatalf("No paths given. What files do you want me to watch?\n")
 	}
 
-	// The basic model of execution:
-	// - prospector: finds files in paths/globs to harvest, starts harvesters
-	// - harvester: reads a file, sends events to the spooler
-	// - spooler: buffers events until ready to flush to the publisher
-	// - publisher: writes to the network, notifies registrar
-	// - registrar: records positions of files read
-	// Finally, prospector uses the registrar information, on restart, to
-	// determine where in each file to resume a harvester.
-
-	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
-	if *use_syslog {
-		configureSyslog()
-	}
+	log.Println("lumberjack starting")
 
 	// Prospect the globs/paths given on the command line and launch harvesters
 	for _, fileconfig := range config.Files {

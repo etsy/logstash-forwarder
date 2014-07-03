@@ -9,6 +9,7 @@ import (
 	"time"
 )
 
+// type Harvester is responsible for tailing a single log file and emitting FileEvents.
 type Harvester struct {
 	Path   string /* the file path to harvest */
 	Fields map[string]string
