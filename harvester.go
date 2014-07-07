@@ -52,9 +52,10 @@ func (h *Harvester) Harvest(output chan *FileEvent) {
 
 		if err != nil {
 			if err == io.EOF {
-				// timed out waiting for data, got eof.
-				// Check to see if the file was truncated
-				info, _ := h.file.Stat()
+				info, err := h.file.Stat()
+				if err != nil {
+					log.Printf("unable to stat file in harvester: %s", err.Error())
+				}
 				if info.Size() < h.Offset {
 					log.Printf("Current offset: %d file size: %d. Seeking to beginning because we believe the file to be truncated: %s", h.Offset, info.Size(), h.Path)
 					h.file.Seek(0, os.SEEK_SET)
