@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"log"
 	"os" // for File and friends
@@ -147,8 +148,7 @@ ReadLines:
 			continue ReadLines
 		case nil:
 		default:
-			log.Println(err)
-			return "", err
+			return "", fmt.Errorf("unable to read line in harvester: %s", err.Error())
 		}
 		return line, nil
 	}
