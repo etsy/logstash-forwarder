@@ -16,7 +16,8 @@ type Harvester struct {
 	Fields map[string]string
 	Offset int64
 
-	file *os.File
+	file     *os.File
+	lastRead time.Time
 }
 
 func (h *Harvester) Harvest(output chan *FileEvent) {
@@ -47,35 +48,28 @@ func (h *Harvester) Harvest(output chan *FileEvent) {
 	reader := bufio.NewReaderSize(h.file, 16<<10) // 16kb buffer by default
 
 	var read_timeout = 10 * time.Second
-	last_read_time := time.Now()
+	h.lastRead = time.Now()
+
+Tail:
 	for {
 		text, err := h.readline(reader, read_timeout)
 
-		if err != nil {
-			if err == io.EOF {
-				info, err := h.file.Stat()
-				if err != nil {
-					log.Printf("unable to stat file in harvester: %s", err.Error())
-				}
-				if info.Size() < h.Offset {
-					log.Printf("Current offset: %d file size: %d. Seeking to beginning because we believe the file to be truncated: %s", h.Offset, info.Size(), h.Path)
-					h.file.Seek(0, os.SEEK_SET)
-					h.Offset = 0
-				} else if age := time.Since(last_read_time); age > (24 * time.Hour) {
-					// if last_read_time was more than 24 hours ago, this file is probably
-					// dead. Stop watching it.
-					// TODO(sissel): Make this time configurable
-					// This file is idle for more than 24 hours. Give up and stop harvesting.
-					log.Printf("Stopping harvest of %s; last change was %d seconds ago\n", h.Path, age.Seconds())
-					return
-				}
-				continue
-			} else {
-				log.Printf("Unexpected state reading from %s; error: %s\n", h.Path, err)
+		switch err {
+		case io.EOF:
+			if h.dead() {
+				log.Printf("stopping harvest of %s because it is dead\n", h.Path)
 				return
 			}
+			if err := h.autoRewind(); err != nil {
+				log.Printf("stopping harvest of %s: %s", h.Path, err.Error())
+			}
+			continue Tail
+		case nil:
+		default:
+			log.Printf("Unexpected state reading from %s; error: %s\n", h.Path, err)
+			return
 		}
-		last_read_time = time.Now()
+
 		rawTextWidth := int64(len(text))
 		text = strings.TrimSpace(text)
 		line++
@@ -97,6 +91,35 @@ func (h *Harvester) Harvest(output chan *FileEvent) {
 
 		output <- event
 	}
+}
+
+func (h *Harvester) dead() bool {
+	return time.Since(h.lastRead) > 24*time.Hour
+}
+
+func (h *Harvester) autoRewind() error {
+	trunc, err := h.truncated()
+	if err != nil {
+		return fmt.Errorf("unable to autoRewind: %s", err.Error())
+	}
+	if trunc {
+		return h.rewind()
+	}
+	return nil
+}
+
+func (h *Harvester) truncated() (bool, error) {
+	info, err := h.file.Stat()
+	if err != nil {
+		return false, fmt.Errorf("unable to stat file in harvester: %s", err.Error())
+	}
+	return info.Size() < h.Offset, nil
+}
+
+func (h *Harvester) rewind() error {
+	_, err := h.file.Seek(0, os.SEEK_SET)
+	h.Offset = 0
+	return err
 }
 
 func (h *Harvester) open() *os.File {
@@ -139,6 +162,7 @@ ReadLines:
 		switch err {
 		case io.EOF:
 			if line != "" {
+				h.lastRead = time.Now()
 				return line, nil
 			}
 			time.Sleep(1 * time.Second)
@@ -150,6 +174,7 @@ ReadLines:
 		default:
 			return "", fmt.Errorf("unable to read line in harvester: %s", err.Error())
 		}
+		h.lastRead = time.Now()
 		return line, nil
 	}
 }
