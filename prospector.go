@@ -39,17 +39,19 @@ func Prospect(fileconfig FileConfig, output chan *FileEvent) {
 func resume_tracking(fileconfig FileConfig, fileinfo map[string]os.FileInfo, output chan *FileEvent) {
 	// Start up with any registrar data.
 
-	history, err := os.Open(".lumberjack")
+	f, err := os.Open(".lumberjack")
 	if err != nil {
 		log.Printf("unable to open lumberjack history file: %v", err.Error())
 		return
 	}
+	defer f.Close()
 
 	historical_state := make(map[string]*FileState)
 	log.Printf("Loading registrar data\n")
-	decoder := json.NewDecoder(history)
-	decoder.Decode(&historical_state)
-	history.Close()
+	if err := json.NewDecoder(f).Decode(&historical_state); err != nil {
+		log.Printf("unable to read lumberjack history file: %v", err.Error())
+		return
+	}
 
 	for path, state := range historical_state {
 		// if the file is the same inode/device as we last saw,
