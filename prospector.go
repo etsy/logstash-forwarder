@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"log"
 	"os"
 	"path/filepath"
@@ -10,8 +9,6 @@ import (
 
 // finds files in paths/globs to harvest, starts harvesters
 func Prospect(fileconfig FileConfig, output chan *FileEvent) {
-	fileinfo := make(map[string]os.FileInfo)
-
 	// Handle any "-" (stdin) paths
 	for i, path := range fileconfig.Paths {
 		if path == "-" {
@@ -24,6 +21,7 @@ func Prospect(fileconfig FileConfig, output chan *FileEvent) {
 	}
 
 	// Use the registrar db to reopen any files at their last positions
+	fileinfo := make(map[string]os.FileInfo)
 	resume_tracking(fileconfig, fileinfo, output)
 
 	for {
@@ -38,26 +36,15 @@ func Prospect(fileconfig FileConfig, output chan *FileEvent) {
 
 func resume_tracking(fileconfig FileConfig, fileinfo map[string]os.FileInfo, output chan *FileEvent) {
 	// Start up with any registrar data.
-
-	f, err := os.Open(*history_path)
-	if err != nil {
-		log.Printf("unable to open lumberjack history file: %v", err.Error())
-		return
-	}
-	defer f.Close()
-
-	historical_state := make(map[string]*FileState)
-	log.Printf("Loading registrar data\n")
-	if err := json.NewDecoder(f).Decode(&historical_state); err != nil {
-		log.Printf("unable to read lumberjack history file: %v", err.Error())
-		return
+	var p progress
+	if err := p.load(*history_path); err != nil {
+		log.Printf("unable to load lumberjack progress file: %s", err.Error())
 	}
 
-	for path, state := range historical_state {
-		// if the file is the same inode/device as we last saw,
-		// start a harvester on it at the last known position
+	for path, state := range p {
 		info, err := os.Stat(path)
 		if err != nil {
+			log.Printf("unable to stat file in resume_tracking: %s", err.Error())
 			continue
 		}
 
@@ -66,9 +53,18 @@ func resume_tracking(fileconfig FileConfig, fileinfo map[string]os.FileInfo, out
 			fileinfo[path] = info
 
 			for _, pathglob := range fileconfig.Paths {
-				match, _ := filepath.Match(pathglob, path)
+				match, err := filepath.Match(pathglob, path)
+				if err != nil {
+					log.Printf("error matching file path: %s", err.Error())
+					continue
+				}
 				if match {
-					harvester := Harvester{Path: path, Fields: fileconfig.Fields, Offset: state.Offset}
+					log.Printf("resume tracking %s", path)
+					harvester := Harvester{
+						Path:   path,
+						Fields: fileconfig.Fields,
+						Offset: state.Offset,
+					}
 					go harvester.Harvest(output)
 					break
 				}
