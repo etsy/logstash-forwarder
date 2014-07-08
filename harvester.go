@@ -80,7 +80,7 @@ Tail:
 			Line:     line,
 			Text:     &text,
 			Fields:   &h.Fields,
-			fileinfo: &info,
+			fileinfo: info,
 		}
 
 		h.Offset += rawTextWidth

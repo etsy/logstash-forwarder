@@ -11,5 +11,5 @@ type FileEvent struct {
 	Text   *string `json:"text,omitempty"`
 	Fields *map[string]string
 
-	fileinfo *os.FileInfo
+	fileinfo os.FileInfo
 }
