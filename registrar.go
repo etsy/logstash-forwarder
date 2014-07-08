@@ -45,7 +45,7 @@ func Registrar(input chan []*FileEvent) {
 		log.Printf("Registrar received %d events. %s\n", len(page), buf.String())
 
 		if len(state) > 0 {
-			WriteRegistry(state, ".lumberjack")
+			WriteRegistry(state, *history_path)
 		}
 	}
 }

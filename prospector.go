@@ -39,7 +39,7 @@ func Prospect(fileconfig FileConfig, output chan *FileEvent) {
 func resume_tracking(fileconfig FileConfig, fileinfo map[string]os.FileInfo, output chan *FileEvent) {
 	// Start up with any registrar data.
 
-	f, err := os.Open(".lumberjack")
+	f, err := os.Open(*history_path)
 	if err != nil {
 		log.Printf("unable to open lumberjack history file: %v", err.Error())
 		return

@@ -4,8 +4,10 @@ package main
 
 import (
 	"encoding/json"
+	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 )
 
 func loadRegistry(fname string) (map[string]*FileState, error) {
@@ -23,13 +25,18 @@ func loadRegistry(fname string) (map[string]*FileState, error) {
 }
 
 func WriteRegistry(state map[string]*FileState, path string) {
-	// Open tmp file, write, flush, rename
-	file, err := os.Create(".lumberjack.new")
+	f, err := ioutil.TempFile(*temp_dir, "lumberjack")
 	if err != nil {
-		log.Printf("Failed to open .lumberjack.new for writing: %s\n", err)
+		log.Printf("failed to create temp file for writing: %s\n", err)
 		return
 	}
-	defer file.Close()
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		log.Printf("unable to stat temp file: %s", err.Error())
+		return
+	}
 
 	existingState, err := loadRegistry(path)
 	if err != nil {
@@ -41,11 +48,11 @@ func WriteRegistry(state map[string]*FileState, path string) {
 		existingState[name] = fs
 	}
 
-	if err := json.NewEncoder(file).Encode(existingState); err != nil {
+	if err := json.NewEncoder(f).Encode(existingState); err != nil {
 		log.Printf("Failed to write log state to file: %v", err)
 		return
 	}
-	if err := os.Rename(".lumberjack.new", path); err != nil {
+	if err := os.Rename(filepath.Join(*temp_dir, fi.Name()), path); err != nil {
 		log.Printf("Failed to move log state file: %v", err)
 	}
 }

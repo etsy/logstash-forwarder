@@ -27,6 +27,8 @@ var (
 	config_file     = flag.String("config", "", "The config file to load")
 	use_syslog      = flag.Bool("log-to-syslog", false, "Log to syslog instead of stdout")
 	from_beginning  = flag.Bool("from-beginning", false, "Read new files from the beginning, instead of the end")
+	history_path    = flag.String("progress-file", ".lumberjack", "path of file used to store progress data")
+	temp_dir        = flag.String("temp-dir", "/tmp", "directory for creating temp files")
 )
 
 func awaitSignals() {
