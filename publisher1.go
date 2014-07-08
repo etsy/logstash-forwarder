@@ -28,8 +28,8 @@ func init() {
 var publisherId = 0
 
 // writes to the network, notifies registrar
-func Publishv1(input chan []*FileEvent,
-	registrar chan []*FileEvent,
+func Publishv1(input chan eventPage,
+	registrar chan eventPage,
 	config *NetworkConfig) {
 	var buffer bytes.Buffer
 	var socket *tls.Conn

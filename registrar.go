@@ -25,7 +25,7 @@ func (p *progress) load(path string) error {
 }
 
 // records positions of files read
-func Registrar(input chan []*FileEvent) {
+func Registrar(input chan eventPage) {
 	for page := range input {
 		state := make(map[string]*FileState)
 		counts := make(map[string]int)

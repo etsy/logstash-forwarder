@@ -6,7 +6,7 @@ import (
 
 // buffers events until ready to flush to the publisher
 func Spool(input chan *FileEvent,
-	output chan []*FileEvent,
+	output chan eventPage,
 	max_size uint64,
 	idle_timeout time.Duration) {
 	// heartbeat periodically. If the last flush was longer than
