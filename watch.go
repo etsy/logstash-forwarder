@@ -25,17 +25,9 @@ func reportFSEvents() {
 		case ev := <-watcher.Event:
 			switch {
 			case ev.IsRename(), ev.IsDelete():
-				// if ev.IsDelete() {
-				//     log.Println(ev)
-				// }
 				if h, ok := harvesters[ev.Name]; ok {
-					// log.Println(ev)
 					h.moved = true
 					delete(harvesters, ev.Name)
-				}
-			case ev.IsCreate():
-				if _, ok := harvesters[ev.Name]; ok {
-					// log.Println(ev)
 				}
 			}
 		case err := <-watcher.Error:

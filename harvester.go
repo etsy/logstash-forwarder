@@ -86,6 +86,8 @@ func (h *Harvester) emit(text string) {
 	}
 	if h.moved {
 		event.Fields["rotated"] = "true"
+	} else {
+		event.Fields["rotated"] = "false"
 	}
 
 	h.Offset += rawTextWidth
