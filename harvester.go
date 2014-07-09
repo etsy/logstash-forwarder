@@ -11,6 +11,10 @@ import (
 	"time"
 )
 
+const (
+	h_Rewind = 1 << iota
+)
+
 // type Harvester is responsible for tailing a single log file and emitting FileEvents.
 type Harvester struct {
 	Path   string
@@ -35,9 +39,11 @@ READING:
 		switch err {
 		case io.EOF:
 			if line != "" {
+				log.Printf("harvester hit EOF in %s with line", h.Path)
 				h.lastRead = time.Now()
 				h.lines <- line
 				time.Sleep(1 * time.Second)
+				log.Printf("hit EOF in %s", h.Path)
 				continue READING
 			}
 			if h.dead() {
@@ -91,7 +97,7 @@ func (h *Harvester) emit(text string) {
 	h.out <- event
 }
 
-func (h *Harvester) Harvest() {
+func (h *Harvester) Harvest(opt int) {
 	registerHarvester(h)
 	watchDir(filepath.Dir(h.Path))
 	if h.Offset > 0 {
@@ -100,7 +106,7 @@ func (h *Harvester) Harvest() {
 		log.Printf("Starting harvester: %s\n", h.Path)
 	}
 
-	h.open()
+	h.open(opt)
 	defer h.file.Close()
 
 	h.lineCount = 0
@@ -135,6 +141,7 @@ func (h *Harvester) autoRewind() error {
 		return fmt.Errorf("unable to autoRewind: %s", err.Error())
 	}
 	if trunc {
+		log.Printf("rewind of truncated file: %s", h.Path)
 		return h.rewind()
 	}
 	return nil
@@ -157,7 +164,7 @@ func (h *Harvester) rewind() error {
 	return err
 }
 
-func (h *Harvester) open() *os.File {
+func (h *Harvester) open(opt int) *os.File {
 	// Special handling that "-" means to read from standard input
 	if h.Path == "-" {
 		h.file = os.Stdin
@@ -180,7 +187,7 @@ func (h *Harvester) open() *os.File {
 	// TODO(sissel): Only seek if the file is a file, not a pipe or socket.
 	if h.Offset > 0 {
 		h.file.Seek(h.Offset, os.SEEK_SET)
-	} else if *from_beginning {
+	} else if *from_beginning || opt&h_Rewind > 0 {
 		h.file.Seek(0, os.SEEK_SET)
 	} else {
 		h.file.Seek(0, os.SEEK_END)

@@ -23,18 +23,23 @@ func reportFSEvents() {
 	for {
 		select {
 		case ev := <-watcher.Event:
-			if ev.IsModify() {
-				break
-			}
-			log.Printf("watcher saw file event: %v %s %s", ev, ev.String(), ev.Name)
-			if ev.IsRename() || ev.IsDelete() {
+			switch {
+			case ev.IsRename(), ev.IsDelete():
+				// if ev.IsDelete() {
+				//     log.Println(ev)
+				// }
 				if h, ok := harvesters[ev.Name]; ok {
+					// log.Println(ev)
 					h.moved = true
 					delete(harvesters, ev.Name)
 				}
+			case ev.IsCreate():
+				if _, ok := harvesters[ev.Name]; ok {
+					// log.Println(ev)
+				}
 			}
 		case err := <-watcher.Error:
-			log.Printf("watcerh saw error: %v", err)
+			log.Printf("watcher saw error: %v", err)
 		}
 	}
 }
