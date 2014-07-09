@@ -124,7 +124,7 @@ func (h *Harvester) Harvest(opt int) {
 
 	h.lastRead = time.Now()
 	h.lines = make(chan string)
-	go h.readlines(10 * time.Second)
+	go h.readlines(24 * time.Hour)
 
 	for line := range h.lines {
 		h.emit(line)
