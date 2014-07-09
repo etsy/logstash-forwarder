@@ -46,10 +46,6 @@ READING:
 				log.Printf("hit EOF in %s", h.Path)
 				continue READING
 			}
-			if h.dead() {
-				log.Printf("stopping harvest of %s because it is dead\n", h.Path)
-				return
-			}
 			if err := h.autoRewind(); err != nil {
 				log.Printf("stopping harvest of %s because of error on autorewind: %s", h.Path, err.Error())
 				return
@@ -129,10 +125,6 @@ func (h *Harvester) Harvest(opt int) {
 	for line := range h.lines {
 		h.emit(line)
 	}
-}
-
-func (h *Harvester) dead() bool {
-	return time.Since(h.lastRead) > 24*time.Hour
 }
 
 // checks to see if the file has been truncated, and if so, rewinds the file
