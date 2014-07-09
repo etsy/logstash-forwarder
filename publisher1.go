@@ -28,13 +28,13 @@ func init() {
 var publisherId = 0
 
 // writes to the network, notifies registrar
-func Publishv1(input chan eventPage,
-	registrar chan eventPage,
-	config *NetworkConfig) {
-	var buffer bytes.Buffer
-	var socket *tls.Conn
-	var sequence uint32
-	var err error
+func Publishv1(input chan eventPage, registrar chan eventPage, config *NetworkConfig) {
+	var (
+		buffer   bytes.Buffer
+		socket   *tls.Conn
+		sequence uint32
+		err      error
+	)
 	id := publisherId
 	publisherId++
 
@@ -44,11 +44,11 @@ func Publishv1(input chan eventPage,
 		socket.Close()
 	}()
 
-	for events := range input {
+	for page := range input {
 		buffer.Truncate(0)
 		compressor, _ := zlib.NewWriterLevel(&buffer, 3)
 
-		for _, event := range events {
+		for _, event := range page {
 			sequence += 1
 			writeDataFrame(event, sequence, compressor)
 		}
@@ -82,7 +82,7 @@ func Publishv1(input chan eventPage,
 				oops(err)
 				continue
 			}
-			err = binary.Write(socket, binary.BigEndian, uint32(len(events)))
+			err = binary.Write(socket, binary.BigEndian, uint32(len(page)))
 			if err != nil {
 				oops(err)
 				continue
@@ -126,7 +126,7 @@ func Publishv1(input chan eventPage,
 		}
 
 		// Tell the registrar that we've successfully sent these events
-		registrar <- events
+		registrar <- page
 	} /* for each event payload */
 } // Publish
 
@@ -204,13 +204,13 @@ func writeDataFrame(event *FileEvent, sequence uint32, output io.Writer) {
 	// sequence number
 	binary.Write(output, binary.BigEndian, uint32(sequence))
 	// 'pair' count
-	binary.Write(output, binary.BigEndian, uint32(len(*event.Fields)+4))
+	binary.Write(output, binary.BigEndian, uint32(len(event.Fields)+4))
 
 	writeKV("file", *event.Source, output)
 	writeKV("host", hostname, output)
 	writeKV("offset", strconv.FormatInt(event.Offset, 10), output)
 	writeKV("line", *event.Text, output)
-	for k, v := range *event.Fields {
+	for k, v := range event.Fields {
 		writeKV(k, v, output)
 	}
 }

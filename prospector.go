@@ -12,8 +12,8 @@ func Prospect(fileconfig FileConfig, output chan *FileEvent) {
 	// Handle any "-" (stdin) paths
 	for i, path := range fileconfig.Paths {
 		if path == "-" {
-			harvester := Harvester{Path: path, Fields: fileconfig.Fields}
-			go harvester.Harvest(output)
+			harvester := Harvester{Path: path, Fields: fileconfig.Fields, out: output}
+			go harvester.Harvest()
 
 			// Remove it from the file list
 			fileconfig.Paths = append(fileconfig.Paths[:i], fileconfig.Paths[i+1:]...)
@@ -35,10 +35,10 @@ func Prospect(fileconfig FileConfig, output chan *FileEvent) {
 } /* Prospect */
 
 func resume_tracking(fileconfig FileConfig, fileinfo map[string]os.FileInfo, output chan *FileEvent) {
-	// Start up with any registrar data.
 	var p progress
 	if err := p.load(*history_path); err != nil {
 		log.Printf("unable to load lumberjack progress file: %s", err.Error())
+		return
 	}
 
 	for path, state := range p {
@@ -64,8 +64,9 @@ func resume_tracking(fileconfig FileConfig, fileinfo map[string]os.FileInfo, out
 						Path:   path,
 						Fields: fileconfig.Fields,
 						Offset: state.Offset,
+						out:    output,
 					}
-					go harvester.Harvest(output)
+					go harvester.Harvest()
 					break
 				}
 			}
@@ -124,15 +125,15 @@ func prospector_scan(path string, fields map[string]string,
 			} else {
 				// Most likely a new file. Harvest it!
 				log.Printf("Launching harvester on new file: %s\n", file)
-				harvester := Harvester{Path: file, Fields: fields}
-				go harvester.Harvest(output)
+				harvester := Harvester{Path: file, Fields: fields, out: output}
+				go harvester.Harvest()
 			}
 		} else if !is_fileinfo_same(lastinfo, info) {
 			log.Printf("Launching harvester on rotated file: %s\n", file)
 			// TODO(sissel): log 'file rotated' or osmething
 			// Start a harvester on the path; a new file appeared with the same name.
-			harvester := Harvester{Path: file, Fields: fields}
-			go harvester.Harvest(output)
+			harvester := Harvester{Path: file, Fields: fields, out: output}
+			go harvester.Harvest()
 		}
 	} // for each file matched by the glob
 }

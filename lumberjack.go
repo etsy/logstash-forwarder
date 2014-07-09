@@ -65,6 +65,7 @@ func main() {
 		log.Fatalf("No paths given. What files do you want me to watch?\n")
 	}
 
+	go reportFSEvents()
 	// Prospect the globs/paths given on the command line and launch harvesters
 	for _, fileconfig := range config.Files {
 		go Prospect(fileconfig, event_chan)
