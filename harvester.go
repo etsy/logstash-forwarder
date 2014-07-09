@@ -123,19 +123,6 @@ func (h *Harvester) Harvest() {
 	}
 }
 
-// func (h *Harvester) moved() (bool, error) {
-// 	fi, err := os.Stat(h.Path)
-// 	if err != nil {
-// 		return false, err
-// 	}
-//
-// 	myFi, err := h.file.Stat()
-// 	if err != nil {
-// 		return false, err
-// 	}
-// 	return !os.SameFile(fi, myFi), nil
-// }
-
 func (h *Harvester) dead() bool {
 	return time.Since(h.lastRead) > 24*time.Hour
 }
