@@ -49,7 +49,7 @@ func (h *Harvester) readlines(timeout time.Duration) {
 	defer close(h.lines)
 	r := bufio.NewReader(h.file)
 	var last string
-READING:
+
 	for {
 		line, err := r.ReadString('\n')
 		if line != "" {
@@ -64,7 +64,7 @@ READING:
 				h.lines <- line
 				time.Sleep(1 * time.Second)
 				log.Printf("hit EOF in %s", h.Path)
-				continue READING
+				continue
 			}
 			if _, err := h.autoRewind(fuck, last); err != nil {
 				log.Printf("harvester for file %s stopping: %v", h.Path, err)
@@ -75,7 +75,7 @@ READING:
 				return
 			}
 			time.Sleep(1 * time.Second)
-			continue READING
+			continue
 		case nil:
 			h.lastRead = time.Now()
 			h.lines <- line
