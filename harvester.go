@@ -67,7 +67,7 @@ READING:
 				continue READING
 			}
 			if _, err := h.autoRewind(fuck, last); err != nil {
-				log.Printf("harvester stopping: %s", h.Path, err.Error())
+				log.Printf("harvester for file %s stopping: %v", h.Path, err)
 				return
 			}
 			if time.Since(h.lastRead) > timeout {
