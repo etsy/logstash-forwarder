@@ -5,15 +5,26 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"os" // for File and friends
+	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
 const (
 	h_Rewind = 1 << iota
 	h_NoRegister
+)
+
+// harvester file handle status
+type hfStatus int
+
+const (
+	hf_Err hfStatus = iota
+	hf_Ok
+	hf_Trunc
+	hf_Gone
 )
 
 // type Harvester is responsible for tailing a single log file and emitting FileEvents.
@@ -56,11 +67,11 @@ READING:
 				continue READING
 			}
 			if _, err := h.autoRewind(fuck, last); err != nil {
-				log.Printf("stopping harvest of %s because of error on autorewind: %s", h.Path, err.Error())
+				log.Printf("harvester stopping: %s", h.Path, err.Error())
 				return
 			}
 			if time.Since(h.lastRead) > timeout {
-				log.Println("harvester timed out")
+				log.Printf("harvester timed out: %s", h.Path)
 				return
 			}
 			time.Sleep(1 * time.Second)
@@ -105,6 +116,7 @@ func (h *Harvester) emit(text string) {
 }
 
 func (h *Harvester) Harvest(opt int) {
+	defer log.Printf("harvester done reading file %s", h.Path)
 	if !(opt&h_NoRegister > 0) {
 		registerHarvester(h)
 	}
@@ -141,25 +153,42 @@ func (h *Harvester) Harvest(opt int) {
 // checks to see if the file has been truncated, and if so, rewinds the file
 // handle.
 func (h *Harvester) autoRewind(fuck int64, line string) (bool, error) {
-	trunc, err := h.truncated()
-	if err != nil {
-		return false, fmt.Errorf("unable to autoRewind: %s", err.Error())
-	}
-	if trunc {
-		log.Printf("rewind of truncated file: %s", h.Path)
+	s, err := h.status()
+	switch s {
+	case hf_Err:
+		return false, fmt.Errorf("unable to autoRewind: %v", err)
+	case hf_Ok:
+		return true, nil
+	case hf_Trunc:
 		h.truncOffset = fuck
 		h.truncLine = line
 		return true, h.rewind()
+	case hf_Gone:
+		return false, fmt.Errorf("file is gone: %s", h.Path)
+	default:
+		return false, fmt.Errorf("unknown harvester file status: %v", s)
 	}
-	return false, nil
 }
 
-func (h *Harvester) truncated() (bool, error) {
+func (h *Harvester) status() (hfStatus, error) {
 	info, err := h.file.Stat()
 	if err != nil {
-		return false, fmt.Errorf("unable to stat file in harvester: %s", err.Error())
+		return hf_Err, fmt.Errorf("unable to stat file in harvester: %s", err.Error())
 	}
-	return info.Size() < h.Offset, nil
+	if info.Sys() != nil {
+		raw, ok := info.Sys().(*syscall.Stat_t)
+		if ok && raw.Nlink == 0 {
+			if info.Size() > h.Offset {
+				log.Printf("deleted file has more data.  size: %d, our offset: %d", info.Size(), h.Offset)
+				return hf_Ok, nil
+			}
+			return hf_Gone, nil
+		}
+	}
+	if info.Size() < h.Offset {
+		return hf_Trunc, nil
+	}
+	return hf_Ok, nil
 }
 
 func (h *Harvester) rewind() error {
