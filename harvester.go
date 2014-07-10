@@ -55,7 +55,7 @@ func (h *Harvester) readlines(timeout time.Duration) {
 		if line != "" {
 			last = line
 		}
-		fuck := h.Offset
+		offset := h.Offset
 		switch err {
 		case io.EOF:
 			if line != "" {
@@ -66,7 +66,7 @@ func (h *Harvester) readlines(timeout time.Duration) {
 				log.Printf("hit EOF in %s", h.Path)
 				continue
 			}
-			if _, err := h.autoRewind(fuck, last); err != nil {
+			if _, err := h.autoRewind(offset, last); err != nil {
 				log.Printf("harvester for file %s stopping: %v", h.Path, err)
 				return
 			}
@@ -152,7 +152,7 @@ func (h *Harvester) Harvest(opt int) {
 
 // checks to see if the file has been truncated, and if so, rewinds the file
 // handle.
-func (h *Harvester) autoRewind(fuck int64, line string) (bool, error) {
+func (h *Harvester) autoRewind(offset int64, line string) (bool, error) {
 	s, err := h.status()
 	switch s {
 	case hf_Err:
@@ -160,7 +160,7 @@ func (h *Harvester) autoRewind(fuck int64, line string) (bool, error) {
 	case hf_Ok:
 		return true, nil
 	case hf_Trunc:
-		h.truncOffset = fuck
+		h.truncOffset = offset
 		h.truncLine = line
 		return true, h.rewind()
 	case hf_Gone:
