@@ -29,6 +29,7 @@ var (
 	from_beginning  = flag.Bool("from-beginning", false, "Read new files from the beginning, instead of the end")
 	history_path    = flag.String("progress-file", ".lumberjack", "path of file used to store progress data")
 	temp_dir        = flag.String("temp-dir", "/tmp", "directory for creating temp files")
+	num_threads     = flag.Int("threads", 1, "Number of OS threads to use")
 )
 
 func awaitSignals() {
@@ -47,6 +48,7 @@ func setupLogging() {
 
 func main() {
 	flag.Parse()
+	runtime.GOMAXPROCS(*num_threads)
 	setupLogging()
 	log.Println("lumberjack starting")
 
