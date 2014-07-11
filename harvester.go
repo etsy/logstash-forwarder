@@ -2,96 +2,205 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"log"
-	"os" // for File and friends
+	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
+const (
+	h_Rewind = 1 << iota
+	h_NoRegister
+)
+
+// harvester file handle status
+type hfStatus int
+
+const (
+	hf_Err hfStatus = iota
+	hf_Ok
+	hf_Trunc
+	hf_Gone
+)
+
+// type Harvester is responsible for tailing a single log file and emitting FileEvents.
 type Harvester struct {
-	Path   string /* the file path to harvest */
+	Path   string
 	Fields map[string]string
 	Offset int64
 
-	file *os.File /* the file being watched */
+	moved     bool // this is set when the file has been moved by logrotate
+	file      *os.File
+	fi        os.FileInfo
+	lastRead  time.Time
+	lines     chan string
+	out       chan *FileEvent
+	lineCount uint64 // do we really need this?
+
+	truncLine   string
+	truncOffset int64
 }
 
-func (h *Harvester) Harvest(output chan *FileEvent) {
+func (h *Harvester) readlines(timeout time.Duration) {
+	defer close(h.lines)
+	r := bufio.NewReader(h.file)
+	var last string
+
+	for {
+		line, err := r.ReadString('\n')
+		if line != "" {
+			last = line
+		}
+		offset := h.Offset
+		switch err {
+		case io.EOF:
+			if line != "" {
+				log.Printf("harvester hit EOF in %s with line", h.Path)
+				h.lastRead = time.Now()
+				h.lines <- line
+				time.Sleep(1 * time.Second)
+				log.Printf("hit EOF in %s", h.Path)
+				continue
+			}
+			if _, err := h.autoRewind(offset, last); err != nil {
+				log.Printf("harvester for file %s stopping: %v", h.Path, err)
+				return
+			}
+			if time.Since(h.lastRead) > timeout {
+				log.Printf("harvester timed out: %s", h.Path)
+				return
+			}
+			time.Sleep(1 * time.Second)
+			continue
+		case nil:
+			h.lastRead = time.Now()
+			h.lines <- line
+		default:
+			log.Printf("unable to read line in harvester: %s", err.Error())
+			return
+		}
+	}
+}
+
+func (h *Harvester) emit(text string) {
+	rawTextWidth := int64(len(text))
+	text = strings.TrimSpace(text)
+	h.lineCount++
+
+	event := &FileEvent{
+		Source:   &h.Path,
+		Offset:   h.Offset,
+		Line:     h.lineCount,
+		Text:     &text,
+		Fields:   h.Fields,
+		Rotated:  h.moved,
+		fileinfo: h.fi,
+	}
+	if h.moved {
+		event.Fields["rotated"] = "true"
+	} else {
+		event.Fields["rotated"] = "false"
+	}
+
+	h.Offset += rawTextWidth
+
+	if text == "" {
+		return
+	}
+
+	h.out <- event
+}
+
+func (h *Harvester) Harvest(opt int) {
+	defer log.Printf("harvester done reading file %s", h.Path)
+	if !(opt&h_NoRegister > 0) {
+		registerHarvester(h)
+	}
+	watchDir(filepath.Dir(h.Path))
 	if h.Offset > 0 {
 		log.Printf("Starting harvester at position %d: %s\n", h.Offset, h.Path)
 	} else {
 		log.Printf("Starting harvester: %s\n", h.Path)
 	}
 
-	h.open()
-	info, _ := h.file.Stat() // TODO(sissel): Check error
+	h.open(opt)
 	defer h.file.Close()
-	//info, _ := file.Stat()
 
-	var line uint64 = 0 // Ask registrar about the line number
+	h.lineCount = 0
 
 	// get current offset in file
-	h.Offset, _ = h.file.Seek(0, os.SEEK_CUR)
+	var err error
+	h.Offset, err = h.file.Seek(0, os.SEEK_CUR)
+	if err != nil {
+		log.Printf("ERROR: unable to seek in file %s: %v\n", h.Path, err)
+	}
 
 	log.Printf("Current file offset: %d\n", h.Offset)
 
-	// TODO(sissel): Make the buffer size tunable at start-time
-	reader := bufio.NewReaderSize(h.file, 16<<10) // 16kb buffer by default
+	h.lastRead = time.Now()
+	h.lines = make(chan string)
+	go h.readlines(24 * time.Hour)
 
-	var read_timeout = 10 * time.Second
-	last_read_time := time.Now()
-	for {
-		text, err := h.readline(reader, read_timeout)
-
-		if err != nil {
-			if err == io.EOF {
-				// timed out waiting for data, got eof.
-				// Check to see if the file was truncated
-				info, _ := h.file.Stat()
-				if info.Size() < h.Offset {
-					log.Printf("Current offset: %d file size: %d. Seeking to beginning because we believe the file to be truncated: %s", h.Offset, info.Size(), h.Path)
-					h.file.Seek(0, os.SEEK_SET)
-					h.Offset = 0
-				} else if age := time.Since(last_read_time); age > (24 * time.Hour) {
-					// if last_read_time was more than 24 hours ago, this file is probably
-					// dead. Stop watching it.
-					// TODO(sissel): Make this time configurable
-					// This file is idle for more than 24 hours. Give up and stop harvesting.
-					log.Printf("Stopping harvest of %s; last change was %d seconds ago\n", h.Path, age.Seconds())
-					return
-				}
-				continue
-			} else {
-				log.Printf("Unexpected state reading from %s; error: %s\n", h.Path, err)
-				return
-			}
-		}
-		last_read_time = time.Now()
-		rawTextWidth := int64(len(text))
-		text = strings.TrimSpace(text)
-		line++
-
-		event := &FileEvent{
-			Source:   &h.Path,
-			Offset:   h.Offset,
-			Line:     line,
-			Text:     &text,
-			Fields:   &h.Fields,
-			fileinfo: &info,
-		}
-
-		h.Offset += rawTextWidth
-
-		if text == "" {
-			continue
-		}
-
-		output <- event // ship the new event downstream
-	} /* forever */
+	for line := range h.lines {
+		h.emit(line)
+	}
 }
 
-func (h *Harvester) open() *os.File {
+// checks to see if the file has been truncated, and if so, rewinds the file
+// handle.
+func (h *Harvester) autoRewind(offset int64, line string) (bool, error) {
+	s, err := h.status()
+	switch s {
+	case hf_Err:
+		return false, fmt.Errorf("unable to autoRewind: %v", err)
+	case hf_Ok:
+		return true, nil
+	case hf_Trunc:
+		h.truncOffset = offset
+		h.truncLine = line
+		return true, h.rewind()
+	case hf_Gone:
+		return false, fmt.Errorf("file is gone: %s", h.Path)
+	default:
+		return false, fmt.Errorf("unknown harvester file status: %v", s)
+	}
+}
+
+func (h *Harvester) status() (hfStatus, error) {
+	info, err := h.file.Stat()
+	if err != nil {
+		return hf_Err, fmt.Errorf("unable to stat file in harvester: %s", err.Error())
+	}
+	if info.Sys() != nil {
+		raw, ok := info.Sys().(*syscall.Stat_t)
+		if ok && raw.Nlink == 0 {
+			if info.Size() > h.Offset {
+				log.Printf("deleted file has more data.  size: %d, our offset: %d", info.Size(), h.Offset)
+				return hf_Ok, nil
+			}
+			return hf_Gone, nil
+		}
+	}
+	if info.Size() < h.Offset {
+		return hf_Trunc, nil
+	}
+	return hf_Ok, nil
+}
+
+func (h *Harvester) rewind() error {
+	_, err := h.file.Seek(0, os.SEEK_SET)
+	h.Offset = 0
+	if err == nil {
+		log.Printf("rewind %s", h.Path)
+	}
+	return err
+}
+
+func (h *Harvester) open(opt int) *os.File {
 	// Special handling that "-" means to read from standard input
 	if h.Path == "-" {
 		h.file = os.Stdin
@@ -114,35 +223,52 @@ func (h *Harvester) open() *os.File {
 	// TODO(sissel): Only seek if the file is a file, not a pipe or socket.
 	if h.Offset > 0 {
 		h.file.Seek(h.Offset, os.SEEK_SET)
-	} else if *from_beginning {
+	} else if *from_beginning || opt&h_Rewind > 0 {
 		h.file.Seek(0, os.SEEK_SET)
 	} else {
 		h.file.Seek(0, os.SEEK_END)
 	}
 
+	var err error
+	h.fi, err = h.file.Stat()
+	if err != nil {
+		log.Printf("unable to stat file: %s", err.Error())
+	}
+
 	return h.file
 }
 
-func (h *Harvester) readline(reader *bufio.Reader, eof_timeout time.Duration) (string, error) {
-	start_time := time.Now()
-ReadLines:
-	for {
-		line, err := reader.ReadString('\n')
-		switch err {
-		case io.EOF:
-			if line != "" {
-				return line, nil
-			}
-			time.Sleep(1 * time.Second)
-			if time.Since(start_time) > eof_timeout {
-				return "", err
-			}
-			continue ReadLines
-		case nil:
-		default:
-			log.Println(err)
-			return "", err
-		}
-		return line, nil
+func (h *Harvester) resume(path string) {
+	if h.truncLine == "" {
+		return
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		log.Printf("cannot resume: %s", err.Error())
+		return
+	}
+	if fi.Size() < h.truncOffset {
+		return
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		log.Printf("cannot resume: %s", err.Error())
+		return
+	}
+	defer f.Close()
+
+	b := make([]byte, len(h.truncLine))
+	_, err = f.ReadAt(b, h.truncOffset-int64(len(h.truncLine)))
+	if err != nil {
+		log.Printf("couldn't read that shit: %s", err.Error())
+		return
+	}
+	// log.Printf("read %d bytes at truncoffset %d", n, h.truncOffset)
+	// log.Printf("%s | %s", h.truncLine, b)
+	if h.truncLine == string(b) {
+		// log.Println("HOLY SHIT")
+		newh := Harvester{Path: path, Fields: h.Fields, out: h.out, Offset: h.truncOffset}
+		go newh.Harvest(0)
 	}
 }

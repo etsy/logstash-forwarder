@@ -1,21 +1,19 @@
 package main
 
 import (
-	"encoding/json"
 	"log"
 	"os"
 	"path/filepath"
 	"time"
 )
 
+// finds files in paths/globs to harvest, starts harvesters
 func Prospect(fileconfig FileConfig, output chan *FileEvent) {
-	fileinfo := make(map[string]os.FileInfo)
-
 	// Handle any "-" (stdin) paths
 	for i, path := range fileconfig.Paths {
 		if path == "-" {
-			harvester := Harvester{Path: path, Fields: fileconfig.Fields}
-			go harvester.Harvest(output)
+			harvester := Harvester{Path: path, Fields: fileconfig.Fields, out: output}
+			go harvester.Harvest(0)
 
 			// Remove it from the file list
 			fileconfig.Paths = append(fileconfig.Paths[:i], fileconfig.Paths[i+1:]...)
@@ -23,6 +21,7 @@ func Prospect(fileconfig FileConfig, output chan *FileEvent) {
 	}
 
 	// Use the registrar db to reopen any files at their last positions
+	fileinfo := make(map[string]os.FileInfo)
 	resume_tracking(fileconfig, fileinfo, output)
 
 	for {
@@ -36,25 +35,16 @@ func Prospect(fileconfig FileConfig, output chan *FileEvent) {
 } /* Prospect */
 
 func resume_tracking(fileconfig FileConfig, fileinfo map[string]os.FileInfo, output chan *FileEvent) {
-	// Start up with any registrar data.
-
-	history, err := os.Open(".lumberjack")
-	if err != nil {
-		log.Printf("unable to open lumberjack history file: %v", err.Error())
+	var p progress
+	if err := p.load(*history_path); err != nil {
+		log.Printf("unable to load lumberjack progress file: %s", err.Error())
 		return
 	}
 
-	historical_state := make(map[string]*FileState)
-	log.Printf("Loading registrar data\n")
-	decoder := json.NewDecoder(history)
-	decoder.Decode(&historical_state)
-	history.Close()
-
-	for path, state := range historical_state {
-		// if the file is the same inode/device as we last saw,
-		// start a harvester on it at the last known position
+	for path, state := range p {
 		info, err := os.Stat(path)
 		if err != nil {
+			log.Printf("unable to stat file in resume_tracking: %s", err.Error())
 			continue
 		}
 
@@ -63,10 +53,20 @@ func resume_tracking(fileconfig FileConfig, fileinfo map[string]os.FileInfo, out
 			fileinfo[path] = info
 
 			for _, pathglob := range fileconfig.Paths {
-				match, _ := filepath.Match(pathglob, path)
+				match, err := filepath.Match(pathglob, path)
+				if err != nil {
+					log.Printf("error matching file path: %s", err.Error())
+					continue
+				}
 				if match {
-					harvester := Harvester{Path: path, Fields: fileconfig.Fields, Offset: state.Offset}
-					go harvester.Harvest(output)
+					log.Printf("resume tracking %s", path)
+					harvester := Harvester{
+						Path:   path,
+						Fields: fileconfig.Fields,
+						Offset: state.Offset,
+						out:    output,
+					}
+					go harvester.Harvest(0)
 					break
 				}
 			}
@@ -77,7 +77,6 @@ func resume_tracking(fileconfig FileConfig, fileinfo map[string]os.FileInfo, out
 func prospector_scan(path string, fields map[string]string,
 	fileinfo map[string]os.FileInfo,
 	output chan *FileEvent) {
-	// log.Printf("Prospecting %v", path)
 
 	// Evaluate the path as a wildcards/shell glob
 	matches, err := filepath.Glob(path)
@@ -93,16 +92,14 @@ func prospector_scan(path string, fields map[string]string,
 
 	// Check any matched files to see if we need to start a harvester
 	for _, file := range matches {
-		// Stat the file, following any symlinks.
 		info, err := os.Stat(file)
-		// TODO(sissel): check err
 		if err != nil {
-			log.Printf("stat(%s) failed: %s\n", file, err)
+			log.Printf("prospector unable to stat file %s: %s\n", file, err)
 			continue
 		}
 
 		if info.IsDir() {
-			log.Printf("Skipping directory: %s\n", file)
+			log.Printf("prospector skipping directory: %s\n", file)
 			continue
 		}
 
@@ -119,21 +116,18 @@ func prospector_scan(path string, fields map[string]string,
 			// TODO(sissel): Skip files with modification dates older than N
 			// TODO(sissel): Make the 'ignore if older than N' tunable
 			if time.Since(info.ModTime()) > 24*time.Hour {
-				log.Printf("Skipping old file: %s\n", file)
+				log.Printf("skipping old file: %s\n", file)
 			} else if is_file_renamed(file, info, fileinfo) {
 				// Check to see if this file was simply renamed (known inode+dev)
 			} else {
-				// Most likely a new file. Harvest it!
-				log.Printf("Launching harvester on new file: %s\n", file)
-				harvester := Harvester{Path: file, Fields: fields}
-				go harvester.Harvest(output)
+				log.Printf("harvest new file: %s\n", file)
+				harvester := Harvester{Path: file, Fields: fields, out: output}
+				go harvester.Harvest(0)
 			}
 		} else if !is_fileinfo_same(lastinfo, info) {
-			log.Printf("Launching harvester on rotated file: %s\n", file)
-			// TODO(sissel): log 'file rotated' or osmething
-			// Start a harvester on the path; a new file appeared with the same name.
-			harvester := Harvester{Path: file, Fields: fields}
-			go harvester.Harvest(output)
+			log.Printf("harvest rotated file: %s\n", file)
+			harvester := Harvester{Path: file, Fields: fields, out: output}
+			go harvester.Harvest(h_Rewind)
 		}
 	} // for each file matched by the glob
 }

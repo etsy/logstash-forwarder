@@ -1,9 +1,18 @@
+// The basic model of execution:
+// - prospector: finds files in paths/globs to harvest, starts harvesters
+// - harvester: reads a file, sends events to the spooler
+// - spooler: buffers events until ready to flush to the publisher
+// - publisher: writes to the network, notifies registrar
+// - registrar: records positions of files read
+// Finally, prospector uses the registrar information, on restart, to
+// determine where in each file to resume a harvester.
 package main
 
 import (
 	"flag"
 	"log"
 	"os"
+	"os/signal"
 	"runtime"
 	"runtime/pprof"
 	"time"
@@ -18,10 +27,30 @@ var (
 	config_file     = flag.String("config", "", "The config file to load")
 	use_syslog      = flag.Bool("log-to-syslog", false, "Log to syslog instead of stdout")
 	from_beginning  = flag.Bool("from-beginning", false, "Read new files from the beginning, instead of the end")
+	history_path    = flag.String("progress-file", ".lumberjack", "path of file used to store progress data")
+	temp_dir        = flag.String("temp-dir", "/tmp", "directory for creating temp files")
+	num_threads     = flag.Int("threads", 1, "Number of OS threads to use")
 )
+
+func awaitSignals() {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, os.Kill)
+	<-c
+	log.Println("lumberjack shutting down")
+}
+
+func setupLogging() {
+	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
+	if *use_syslog {
+		configureSyslog()
+	}
+}
 
 func main() {
 	flag.Parse()
+	runtime.GOMAXPROCS(*num_threads)
+	setupLogging()
+	log.Println("lumberjack starting")
 
 	startCPUProfile()
 
@@ -31,27 +60,14 @@ func main() {
 	}
 
 	event_chan := make(chan *FileEvent, 16)
-	publisher_chan := make(chan []*FileEvent, 1)
-	registrar_chan := make(chan []*FileEvent, 1)
+	publisher_chan := make(chan eventPage, 1)
+	registrar_chan := make(chan eventPage, 1)
 
 	if len(config.Files) == 0 {
 		log.Fatalf("No paths given. What files do you want me to watch?\n")
 	}
 
-	// The basic model of execution:
-	// - prospector: finds files in paths/globs to harvest, starts harvesters
-	// - harvester: reads a file, sends events to the spooler
-	// - spooler: buffers events until ready to flush to the publisher
-	// - publisher: writes to the network, notifies registrar
-	// - registrar: records positions of files read
-	// Finally, prospector uses the registrar information, on restart, to
-	// determine where in each file to resume a harvester.
-
-	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
-	if *use_syslog {
-		configureSyslog()
-	}
-
+	go reportFSEvents()
 	// Prospect the globs/paths given on the command line and launch harvesters
 	for _, fileconfig := range config.Files {
 		go Prospect(fileconfig, event_chan)
@@ -69,7 +85,8 @@ func main() {
 	}
 
 	// registrar records last acknowledged positions in all files.
-	Registrar(registrar_chan)
+	go Registrar(registrar_chan)
+	awaitSignals()
 }
 
 func startCPUProfile() {

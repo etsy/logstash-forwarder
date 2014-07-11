@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"log"
+	"fmt"
 	"os"
 	"time"
 )
@@ -10,6 +10,21 @@ import (
 type Config struct {
 	Network NetworkConfig `json:network`
 	Files   []FileConfig  `json:files`
+}
+
+func (c *Config) UnmarshalJSON(b []byte) error {
+	type t Config
+	var raw t
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+
+	*c = Config(raw)
+	if c.Network.Timeout == 0 {
+		c.Network.Timeout = 15
+	}
+	c.Network.timeout = time.Duration(c.Network.Timeout) * time.Second
+	return nil
 }
 
 type NetworkConfig struct {
@@ -24,44 +39,27 @@ type NetworkConfig struct {
 type FileConfig struct {
 	Paths  []string          `json:paths`
 	Fields map[string]string `json:fields`
-	//DeadTime time.Duration `json:"dead time"`
 }
 
-func LoadConfig(path string) (config Config, err error) {
-	config_file, err := os.Open(path)
+func LoadConfig(path string) (*Config, error) {
+	f, err := os.Open(path)
 	if err != nil {
-		log.Printf("Failed to open config file '%s': %s\n", path, err)
-		return
+		return nil, fmt.Errorf("failed to open config file '%s': %s\n", path, err)
 	}
+	defer f.Close()
 
-	fi, _ := config_file.Stat()
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat config file '%s': %s\n", path, err)
+	}
 	if fi.Size() > (10 << 20) {
-		log.Printf("Config file too large? Aborting, just in case. '%s' is %d bytes\n",
+		return nil, fmt.Errorf("Config file too large? Aborting, just in case. '%s' is %d bytes\n",
 			path, fi)
-		return
 	}
 
-	buffer := make([]byte, fi.Size())
-	_, err = config_file.Read(buffer)
-	log.Printf("%s\n", buffer)
-
-	err = json.Unmarshal(buffer, &config)
-	if err != nil {
-		log.Printf("Failed unmarshalling json: %s\n", err)
-		return
+	var conf Config
+	if err := json.NewDecoder(f).Decode(&conf); err != nil {
+		return nil, fmt.Errorf("failed unmarshalling config json: %s\n", err)
 	}
-
-	if config.Network.Timeout == 0 {
-		config.Network.Timeout = 15
-	}
-
-	config.Network.timeout = time.Duration(config.Network.Timeout) * time.Second
-
-	//for _, fileconfig := range config.Files {
-	//if fileconfig.DeadTime == 0 {
-	//fileconfig.DeadTime = 24 * time.Hour
-	//}
-	//}
-
-	return
+	return &conf, nil
 }

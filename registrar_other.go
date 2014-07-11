@@ -4,8 +4,10 @@ package main
 
 import (
 	"encoding/json"
-	"log"
+	"fmt"
+	"io/ioutil"
 	"os"
+	"path/filepath"
 )
 
 func loadRegistry(fname string) (map[string]*FileState, error) {
@@ -22,30 +24,32 @@ func loadRegistry(fname string) (map[string]*FileState, error) {
 	return existingState, nil
 }
 
-func WriteRegistry(state map[string]*FileState, path string) {
-	// Open tmp file, write, flush, rename
-	file, err := os.Create(".lumberjack.new")
+func (p *progress) writeFile(path string) error {
+	f, err := ioutil.TempFile(*temp_dir, "lumberjack")
 	if err != nil {
-		log.Printf("Failed to open .lumberjack.new for writing: %s\n", err)
-		return
+		return fmt.Errorf("failed to create temp file for writing: %s\n", err)
 	}
-	defer file.Close()
+	defer f.Close()
 
-	existingState, err := loadRegistry(path)
+	fi, err := f.Stat()
 	if err != nil {
-		log.Printf("Failed to read existing state at path %s: %s", path, err.Error())
-		existingState = make(map[string]*FileState)
+		return fmt.Errorf("unable to stat temp file: %s", err.Error())
 	}
 
-	for name, fs := range state {
-		existingState[name] = fs
+	var existing progress
+	if err := existing.load(path); err != nil {
+		return fmt.Errorf("failed to read existing state at path %s: %s", path, err.Error())
 	}
 
-	if err := json.NewEncoder(file).Encode(existingState); err != nil {
-		log.Printf("Failed to write log state to file: %v", err)
-		return
+	for name, fs := range *p {
+		existing[name] = fs
 	}
-	if err := os.Rename(".lumberjack.new", path); err != nil {
-		log.Printf("Failed to move log state file: %v", err)
+
+	if err := json.NewEncoder(f).Encode(existing); err != nil {
+		return fmt.Errorf("failed to write log state to file: %v", err)
 	}
+	if err := os.Rename(filepath.Join(*temp_dir, fi.Name()), path); err != nil {
+		return fmt.Errorf("failed to move log state file: %v", err)
+	}
+	return nil
 }
