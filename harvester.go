@@ -39,7 +39,6 @@ type Harvester struct {
 	lastRead  time.Time
 	lines     chan string
 	out       chan *FileEvent
-	lineCount uint64 // do we really need this?
 
 	truncLine   string
 	truncOffset int64
@@ -89,7 +88,6 @@ func (h *Harvester) readlines(timeout time.Duration) {
 func (h *Harvester) emit(text string) {
 	rawTextWidth := int64(len(text))
 	text = strings.TrimSpace(text)
-	h.lineCount++
 
 	event := &FileEvent{
 		Source:   h.Path,
@@ -129,7 +127,6 @@ func (h *Harvester) Harvest(opt int) {
 	h.open(opt)
 	defer h.file.Close()
 
-	h.lineCount = 0
 
 	// get current offset in file
 	var err error
