@@ -6,14 +6,14 @@ func (p *eventPage) progress() progress {
 	prog := make(progress)
 
 	for _, event := range *p {
-		if *event.Source == "-" || event.Source == nil || event.Rotated {
+		if event.Source == "-" || event.Source == "" || event.Rotated {
 			continue
 		}
 
 		ino, dev := file_ids(event.fileinfo)
-		prog[*event.Source] = &FileState{
-			Source: event.Source,
-			Offset: event.Offset + int64(len(*event.Text)) + 1,
+		prog[event.Source] = &FileState{
+			Source: &event.Source,
+			Offset: event.Offset + int64(len(event.Text)) + 1,
 			Inode:  ino,
 			Device: dev,
 		}
@@ -25,12 +25,12 @@ func (p *eventPage) progress() progress {
 func (p *eventPage) counts() (map[string]int, map[string]int) {
 	total, bad := make(map[string]int), make(map[string]int)
 	for _, event := range *p {
-		if event.Source == nil {
+		if event.Source == "" {
 			continue
 		}
-		total[*event.Source] += 1
+		total[event.Source] += 1
 		if event.Rotated {
-			bad[*event.Source] += 1
+			bad[event.Source] += 1
 		}
 	}
 	return total, bad

@@ -206,10 +206,10 @@ func writeDataFrame(event *FileEvent, sequence uint32, output io.Writer) {
 	// 'pair' count
 	binary.Write(output, binary.BigEndian, uint32(len(event.Fields)+4))
 
-	writeKV("file", *event.Source, output)
+	writeKV("file", event.Source, output)
 	writeKV("host", hostname, output)
 	writeKV("offset", strconv.FormatInt(event.Offset, 10), output)
-	writeKV("line", *event.Text, output)
+	writeKV("line", event.Text, output)
 	for k, v := range event.Fields {
 		writeKV(k, v, output)
 	}
