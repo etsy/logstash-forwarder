@@ -12,7 +12,7 @@ func (p *eventPage) progress() progress {
 
 		ino, dev := file_ids(event.fileinfo)
 		prog[event.Source] = &FileState{
-			Source: &event.Source,
+			Source: event.Source,
 			Offset: event.Offset + int64(len(event.Text)) + 1,
 			Inode:  ino,
 			Device: dev,
