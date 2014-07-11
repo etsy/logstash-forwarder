@@ -13,7 +13,7 @@ func Prospect(fileconfig FileConfig, output chan *FileEvent) {
 	for i, path := range fileconfig.Paths {
 		if path == "-" {
 			harvester := Harvester{Path: path, Fields: fileconfig.Fields, out: output}
-			go harvester.Harvest(0)
+			go harvester.Harvest(0, 0)
 
 			// Remove it from the file list
 			fileconfig.Paths = append(fileconfig.Paths[:i], fileconfig.Paths[i+1:]...)
@@ -63,10 +63,9 @@ func resume_tracking(fileconfig FileConfig, fileinfo map[string]os.FileInfo, out
 					harvester := Harvester{
 						Path:   path,
 						Fields: fileconfig.Fields,
-						Offset: state.Offset,
 						out:    output,
 					}
-					go harvester.Harvest(0)
+					go harvester.Harvest(state.Offset, 0)
 					break
 				}
 			}
@@ -122,12 +121,12 @@ func prospector_scan(path string, fields map[string]string,
 			} else {
 				log.Printf("harvest new file: %s\n", file)
 				harvester := Harvester{Path: file, Fields: fields, out: output}
-				go harvester.Harvest(0)
+				go harvester.Harvest(0, 0)
 			}
 		} else if !is_fileinfo_same(lastinfo, info) {
 			log.Printf("harvest rotated file: %s\n", file)
 			harvester := Harvester{Path: file, Fields: fields, out: output}
-			go harvester.Harvest(h_Rewind)
+			go harvester.Harvest(0, h_Rewind)
 		}
 	} // for each file matched by the glob
 }
