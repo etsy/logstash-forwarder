@@ -94,7 +94,6 @@ func (h *Harvester) emit(text string) {
 	event := &FileEvent{
 		Source:   &h.Path,
 		Offset:   h.Offset,
-		Line:     h.lineCount,
 		Text:     &text,
 		Fields:   h.Fields,
 		Rotated:  h.moved,
