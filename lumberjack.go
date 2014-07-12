@@ -30,6 +30,8 @@ var (
 	history_path    = flag.String("progress-file", ".lumberjack", "path of file used to store progress data")
 	temp_dir        = flag.String("temp-dir", "/tmp", "directory for creating temp files")
 	num_threads     = flag.Int("threads", 1, "Number of OS threads to use")
+
+	event_chan chan *FileEvent
 )
 
 func awaitSignals() {
@@ -50,6 +52,7 @@ func main() {
 	flag.Parse()
 	runtime.GOMAXPROCS(*num_threads)
 	setupLogging()
+	go cmdListener()
 	log.Println("lumberjack starting")
 
 	startCPUProfile()
@@ -59,7 +62,7 @@ func main() {
 		log.Fatal(err.Error())
 	}
 
-	event_chan := make(chan *FileEvent, 16)
+	event_chan = make(chan *FileEvent, 16)
 	publisher_chan := make(chan eventPage, 1)
 	registrar_chan := make(chan eventPage, 1)
 
