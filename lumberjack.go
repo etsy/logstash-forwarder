@@ -30,6 +30,7 @@ var (
 	history_path    = flag.String("progress-file", ".lumberjack", "path of file used to store progress data")
 	temp_dir        = flag.String("temp-dir", "/tmp", "directory for creating temp files")
 	num_threads     = flag.Int("threads", 1, "Number of OS threads to use")
+	cmd_port        = flag.Int("cmd-port", 42586, "tcp command port number")
 
 	event_chan chan *FileEvent
 )
