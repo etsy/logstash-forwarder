@@ -33,6 +33,9 @@ var replayCmd = cmd{
 			fmt.Fprintf(w, "usage: replay [filename] [--offset=N] [field1=value1 field2=value2 ... fieldN=valueN]")
 			return
 		}
+		for i, _ := range args {
+			args[i] = strings.TrimSpace(args[i])
+		}
 		fields := make(map[string]string, len(args)-1)
 		if len(args) > 1 {
 			for i := 1; i < len(args); i++ {
@@ -44,7 +47,6 @@ var replayCmd = cmd{
 				fields[parts[0]] = strings.TrimSpace(parts[1])
 			}
 		}
-		log.Println(fields)
 		h := &Harvester{Path: args[0], Fields: fields, out: event_chan}
 		fmt.Fprintln(w, "ok")
 		go h.Harvest(offset, h_Rewind)

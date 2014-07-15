@@ -8,8 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
+)
+
+var (
+	registry     = make(map[string]*Harvester)
+	registryLock sync.Mutex
 )
 
 const (
@@ -43,12 +49,18 @@ type Harvester struct {
 }
 
 func (h *Harvester) readlines(timeout time.Duration) {
+	if err := h.register(); err != nil {
+		log.Printf("readlines unable to register: %v", err)
+		return
+	}
+	defer h.unregister()
+
 	r := bufio.NewReader(h.file)
 	var last string
 
 	offset, err := h.fileOffset()
 	if err != nil {
-		fmt.Println("unable to read file offset in readlines: %v", err)
+		log.Printf("unable to read file offset in readlines: %v", err)
 		return
 	}
 
@@ -102,6 +114,35 @@ func (h *Harvester) event(text string, offset int64) *FileEvent {
 		e.Fields["rotated"] = "false"
 	}
 	return e
+}
+
+func (h *Harvester) register() error {
+	if h.fi == nil {
+		return fmt.Errorf("fileinfo is nil")
+	}
+	s := filestring(h.fi)
+
+	registryLock.Lock()
+	defer registryLock.Unlock()
+
+	if _, ok := registry[s]; ok {
+		return fmt.Errorf("already harvesting that file")
+	}
+	registry[s] = h
+	return nil
+}
+
+func (h *Harvester) unregister() {
+	if h.fi == nil {
+		return
+	}
+	s := filestring(h.fi)
+
+	registryLock.Lock()
+	defer registryLock.Unlock()
+
+	delete(registry, s)
+	return
 }
 
 func (h *Harvester) emit(text string, offset int64) {
@@ -213,7 +254,7 @@ func (h *Harvester) open(offset int64, opt int) *os.File {
 
 		if err != nil {
 			// retry on failure.
-			log.Printf("Failed opening %s: %s\n", h.Path, err)
+			log.Printf("Failed opening stupid file %s: %s\n", h.Path, err)
 			time.Sleep(5 * time.Second)
 		} else {
 			break
