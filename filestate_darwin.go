@@ -1,8 +1,8 @@
 package main
 
 type FileState struct {
-	Source string
-	Offset int64
-	Inode  uint64
-	Device int32
+	Source string `json:"source"`
+	Offset int64  `json:"offset"`
+	Inode  uint64 `json:"inode"`
+	Device int32  `json:"device"`
 }
