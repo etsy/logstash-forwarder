@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	registry     = make(map[string]*Harvester)
+	registry     = make(map[fileId]*Harvester)
 	registryLock sync.Mutex
 )
 

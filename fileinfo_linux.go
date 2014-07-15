@@ -12,7 +12,7 @@ func file_ids(info os.FileInfo) (uint64, uint64) {
 	return fstat.Ino, fstat.Dev
 }
 
-func filestring(info os.FileInfo) string {
+func filestring(info os.FileInfo) fileId {
 	stat := info.Sys().(*syscall.Stat_t)
-	return fmt.Sprintf("%v_%v", stat.Ino, stat.Dev)
+	return fileId(fmt.Sprintf("%v_%v", stat.Ino, stat.Dev))
 }
