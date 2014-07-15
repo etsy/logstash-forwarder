@@ -39,8 +39,7 @@ type Harvester struct {
 	lastRead time.Time
 	out      chan *FileEvent
 
-	truncLine   string
-	truncOffset int64
+	nextPath string
 }
 
 func (h *Harvester) readlines(timeout time.Duration) {
@@ -49,7 +48,7 @@ func (h *Harvester) readlines(timeout time.Duration) {
 
 	offset, err := h.fileOffset()
 	if err != nil {
-		fmt.Println("oh fuck")
+		fmt.Println("unable to read file offset in readlines: %v", err)
 		return
 	}
 
@@ -67,9 +66,11 @@ func (h *Harvester) readlines(timeout time.Duration) {
 				time.Sleep(1 * time.Second)
 				break
 			}
-			if _, err := h.autoRewind(offset, last); err != nil {
+			if rewound, err := h.autoRewind(offset, last); err != nil {
 				log.Printf("harvester for file %s stopping: %v", h.Path, err)
 				return
+			} else if rewound {
+				offset = 0
 			}
 			if time.Since(h.lastRead) > timeout {
 				log.Printf("harvester timed out: %s", h.Path)
@@ -125,6 +126,27 @@ func (h *Harvester) Harvest(offset int64, opt int) {
 	h.readlines(24 * time.Hour)
 }
 
+func (h *Harvester) resume(offset int64, line string) {
+	log.Printf("trying to resume %s at offset %d", h.Path, offset)
+	if h.Path == "-" {
+		log.Printf("illegal attempt to resume stdin at offset %d", offset)
+		return
+	}
+
+	h.open(offset, 0)
+	defer h.file.Close()
+
+	b := make([]byte, len(line))
+	_, err := h.file.ReadAt(b, offset-int64(len(line)))
+	if err != nil {
+		log.Printf("couldn't read resume line: %v", err)
+		return
+	}
+	if line == string(b) {
+		h.readlines(24 * time.Hour)
+	}
+}
+
 // checks to see if the file has been truncated, and if so, rewinds the file
 // handle.
 func (h *Harvester) autoRewind(offset int64, line string) (bool, error) {
@@ -133,10 +155,13 @@ func (h *Harvester) autoRewind(offset int64, line string) (bool, error) {
 	case hf_Err:
 		return false, fmt.Errorf("unable to autoRewind: %v", err)
 	case hf_Ok:
-		return true, nil
+		return false, nil
 	case hf_Trunc:
-		h.truncOffset = offset
-		h.truncLine = line
+		if h.nextPath != "" {
+			newh := Harvester{Path: h.nextPath, Fields: h.Fields, out: h.out}
+			go newh.resume(offset, line)
+			h.nextPath = ""
+		}
 		return true, h.rewind()
 	case hf_Gone:
 		return false, fmt.Errorf("file is gone: %s", h.Path)
@@ -214,39 +239,4 @@ func (h *Harvester) open(offset int64, opt int) *os.File {
 	}
 
 	return h.file
-}
-
-func (h *Harvester) resume(path string) {
-	if h.truncLine == "" {
-		return
-	}
-	fi, err := os.Stat(path)
-	if err != nil {
-		log.Printf("cannot resume: %s", err.Error())
-		return
-	}
-	if fi.Size() < h.truncOffset {
-		return
-	}
-
-	f, err := os.Open(path)
-	if err != nil {
-		log.Printf("cannot resume: %s", err.Error())
-		return
-	}
-	defer f.Close()
-
-	b := make([]byte, len(h.truncLine))
-	_, err = f.ReadAt(b, h.truncOffset-int64(len(h.truncLine)))
-	if err != nil {
-		log.Printf("couldn't read that shit: %s", err.Error())
-		return
-	}
-	// log.Printf("read %d bytes at truncoffset %d", n, h.truncOffset)
-	// log.Printf("%s | %s", h.truncLine, b)
-	if h.truncLine == string(b) {
-		// log.Println("HOLY SHIT")
-		newh := Harvester{Path: path, Fields: h.Fields, out: h.out}
-		go newh.Harvest(h.truncOffset, 0)
-	}
 }

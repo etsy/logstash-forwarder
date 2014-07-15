@@ -5,7 +5,6 @@ import (
 	"log"
 	"regexp"
 	"sync"
-	"time"
 )
 
 var (
@@ -55,9 +54,7 @@ func reportFSEvents() {
 					break
 				}
 				if h, ok := harvesters[path]; ok {
-					time.AfterFunc(time.Second, func() {
-						h.resume(ev.Name)
-					})
+					h.nextPath = ev.Name
 				}
 			}
 		case err := <-watcher.Error:
