@@ -33,6 +33,7 @@ var (
 	cmd_port        = flag.Int("cmd-port", 42586, "tcp command port number")
 
 	event_chan chan *FileEvent
+	registry   *hregistry
 )
 
 func awaitSignals() {
@@ -62,6 +63,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err.Error())
 	}
+	registry = newRegistry(config)
 
 	event_chan = make(chan *FileEvent, 16)
 	publisher_chan := make(chan eventPage, 1)

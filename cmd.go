@@ -53,6 +53,21 @@ var replayCmd = cmd{
 	},
 }
 
+var infoCmd = cmd{
+	name: "info",
+	run: func(args []string, w io.Writer) {
+		fmt.Fprintln(w, "[inode_harvesters]")
+		for id, h := range registry.runningIds {
+			fmt.Fprintf(w, "%v: %v\n", id, h)
+		}
+		fmt.Fprintln(w, "[name_harvesters]")
+		for path, h := range registry.runningPaths {
+			fmt.Fprintf(w, "%v: %v\n", path, h)
+		}
+		fmt.Fprintln(w, registry)
+	},
+}
+
 func registerCmd(c cmd) {
 	commands[c.name] = c
 }
@@ -81,6 +96,9 @@ func cmdHandler(conn net.Conn) {
 		line, err := r.ReadString('\n')
 		switch err {
 		case nil:
+			if strings.TrimSpace(line) == "" {
+				break
+			}
 			runCmd(conn, line)
 		case io.EOF:
 			return
@@ -95,7 +113,7 @@ func runCmd(conn net.Conn, line string) {
 	cleaned := make([]string, 0, len(parts))
 	for _, part := range parts {
 		if part != "" {
-			cleaned = append(cleaned, part)
+			cleaned = append(cleaned, strings.TrimSpace(part))
 		}
 	}
 	if len(cleaned) == 0 {
@@ -111,4 +129,5 @@ func runCmd(conn net.Conn, line string) {
 
 func init() {
 	registerCmd(replayCmd)
+	registerCmd(infoCmd)
 }

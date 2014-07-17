@@ -8,14 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
-)
-
-var (
-	registry     = make(map[fileId]*Harvester)
-	registryLock sync.Mutex
 )
 
 const (
@@ -34,7 +28,8 @@ const (
 	hf_Gone
 )
 
-// type Harvester is responsible for tailing a single log file and emitting FileEvents.
+// type Harvester is responsible for tailing a single log file and emitting
+// FileEvents.  A harvester never changes which inode it points to.
 type Harvester struct {
 	Path   string
 	Fields map[string]string
@@ -48,12 +43,14 @@ type Harvester struct {
 	nextPath string
 }
 
+// readlines reads lines from the harvester's existing file handle.  readlines
+// does not open or seek a file on its own.
 func (h *Harvester) readlines(timeout time.Duration) {
-	if err := h.register(); err != nil {
+	if err := registry.register(h); err != nil {
 		log.Printf("readlines unable to register: %v", err)
 		return
 	}
-	defer h.unregister()
+	defer registry.unregister(h)
 
 	r := bufio.NewReader(h.file)
 	var last string
@@ -99,6 +96,9 @@ func (h *Harvester) readlines(timeout time.Duration) {
 	}
 }
 
+// the event method takes a line of text found at a byte offset in the
+// harvester's current file and wraps it in a *FileEvent object, adding some
+// file-level context to the FileEvent.
 func (h *Harvester) event(text string, offset int64) *FileEvent {
 	e := &FileEvent{
 		Source:   h.Path,
@@ -116,35 +116,6 @@ func (h *Harvester) event(text string, offset int64) *FileEvent {
 	return e
 }
 
-func (h *Harvester) register() error {
-	if h.fi == nil {
-		return fmt.Errorf("fileinfo is nil")
-	}
-	s := filestring(h.fi)
-
-	registryLock.Lock()
-	defer registryLock.Unlock()
-
-	if _, ok := registry[s]; ok {
-		return fmt.Errorf("already harvesting that file")
-	}
-	registry[s] = h
-	return nil
-}
-
-func (h *Harvester) unregister() {
-	if h.fi == nil {
-		return
-	}
-	s := filestring(h.fi)
-
-	registryLock.Lock()
-	defer registryLock.Unlock()
-
-	delete(registry, s)
-	return
-}
-
 func (h *Harvester) emit(text string, offset int64) {
 	h.out <- h.event(text, offset)
 }
@@ -153,11 +124,15 @@ func (h *Harvester) fileOffset() (int64, error) {
 	return h.file.Seek(0, os.SEEK_CUR)
 }
 
+func (h *Harvester) fileId() (fileId, error) {
+	if h.fi == nil {
+		return "", fmt.Errorf("harvester has no file handle")
+	}
+	return filestring(h.fi), nil
+}
+
 func (h *Harvester) Harvest(offset int64, opt int) {
 	defer log.Printf("harvester done reading file %s", h.Path)
-	if !(opt&h_NoRegister > 0) {
-		registerHarvester(h)
-	}
 	watchDir(filepath.Dir(h.Path))
 	log.Printf("Starting harvester: %s\n", h.Path)
 
@@ -168,6 +143,7 @@ func (h *Harvester) Harvest(offset int64, opt int) {
 }
 
 func (h *Harvester) resume(offset int64, line string) {
+	defer log.Printf("harvester done reading file %s", h.Path)
 	log.Printf("trying to resume %s at offset %d", h.Path, offset)
 	if h.Path == "-" {
 		log.Printf("illegal attempt to resume stdin at offset %d", offset)

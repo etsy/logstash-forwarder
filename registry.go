@@ -1,22 +1,122 @@
 package main
 
-import ()
+import (
+	"fmt"
+	"log"
+	"os"
+	"sync"
+)
 
 type fileId string
 
 type hregistry struct {
-	harvesting    map[string]*Harvester
-	shouldHarvest map[string]bool
+	runningIds   map[fileId]*Harvester
+	runningPaths map[string]*Harvester
+	paths        map[string]bool
+	mu           sync.RWMutex
 }
 
-func (h hregistry) register(v *Harvester) {
-
+func newRegistry(conf *Config) *hregistry {
+	r := &hregistry{
+		runningIds:   make(map[fileId]*Harvester, len(conf.Files)),
+		runningPaths: make(map[string]*Harvester, len(conf.Files)),
+		paths:        make(map[string]bool, len(conf.Files)),
+	}
+	for _, f := range conf.Files {
+		for _, path := range f.Paths {
+			r.paths[path] = true
+		}
+	}
+	return r
 }
 
-func (h hregistry) unregister(v *Harvester) {
+func (r hregistry) register(v *Harvester) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
+	id, err := v.fileId()
+	if err != nil {
+		return fmt.Errorf("unable to register harvester: %v", err)
+	}
+
+	if _, ok := r.runningIds[id]; ok {
+		return fmt.Errorf("file is already being harvested: %v", v)
+	}
+
+	if _, ok := r.runningPaths[v.Path]; ok {
+		return fmt.Errorf("path is already being harvested: %v", v)
+
+	}
+	r.runningIds[id] = v
+	r.runningPaths[v.Path] = v
+
+	log.Printf("registrary registered: %v", v)
+	return nil
 }
 
-func (h hregistry) getByPath(path string) {
+func (r hregistry) unregister(v *Harvester) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
+	id, err := v.fileId()
+	if err != nil {
+		return fmt.Errorf("unable to unregister harvester: %v", err)
+	}
+
+	if _, ok := r.runningIds[id]; !ok {
+		return fmt.Errorf("unable to unregister harvester: id %s wasn't registered", id)
+	}
+
+	if _, ok := r.runningPaths[v.Path]; !ok {
+		return fmt.Errorf("unable to unregister harvester: path %s wasn't registered", v.Path)
+	}
+	delete(r.runningIds, id)
+	delete(r.runningPaths, v.Path)
+
+	log.Printf("registrar unregistered: %v", v)
+	return nil
+}
+
+func (r hregistry) byPath(path string) *Harvester {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.runningPaths[path]
+}
+
+func (r hregistry) byPathStat(path string) *Harvester {
+	fi, err := os.Stat(path)
+	if err != nil {
+		log.Printf("registry can't stat file: %v", err)
+		return nil
+	}
+	return r.byId(filestring(fi))
+}
+
+func (r hregistry) byId(id fileId) *Harvester {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.runningIds[id]
+}
+
+func (r hregistry) rename(prev, curr string) {
+	log.Printf("registry renaming %s to %s", prev, curr)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	h := r.byPath(prev)
+	if h == nil {
+		log.Printf("registry didn't have a record for any harvester at %s", prev)
+		return
+	}
+
+	if h.Path != prev {
+		log.Printf("registry rename failed sanity check: harvester's prev path %s does not match expected path %s", h.Path, prev)
+		return
+	}
+	h.Path = curr
+	h.moved = true
+	r.runningPaths[curr] = h
+	delete(r.runningPaths, prev)
 }

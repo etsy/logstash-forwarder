@@ -4,26 +4,20 @@ import (
 	"code.google.com/p/go.exp/fsnotify"
 	"log"
 	"regexp"
+	"strings"
 	"sync"
 )
 
 var (
-	watcher    *fsnotify.Watcher
-	watchDirs  = make(map[string]bool)
-	watchLock  sync.Mutex
-	harvesters = make(map[string]*Harvester)
+	watcher   *fsnotify.Watcher
+	watchDirs = make(map[string]bool)
+	watchLock sync.Mutex
 
 	lr_suffixes = []*regexp.Regexp{
 		regexp.MustCompile("\\.\\d+$"), // numeric suffix (default sufix)
 		regexp.MustCompile("-\\d{8}$"), // dateext option
 	}
 )
-
-func registerHarvester(h *Harvester) {
-	watchLock.Lock()
-	defer watchLock.Unlock()
-	harvesters[h.Path] = h
-}
 
 // strips a path name of logrotate suffixes.
 func lrStrip(path string) (string, bool) {
@@ -39,21 +33,30 @@ func reportFSEvents() {
 	for {
 		select {
 		case ev := <-watcher.Event:
-			// if !ev.IsModify() {
-			// 	log.Println(ev)
-			// }
 			switch {
-			case ev.IsRename(), ev.IsDelete():
-				if h, ok := harvesters[ev.Name]; ok {
+			case ev.IsRename():
+				// is this useful?
+				if h := registry.byPath(ev.Name); h != nil {
 					h.moved = true
-					delete(harvesters, ev.Name)
 				}
+			case ev.IsDelete():
+
 			case ev.IsCreate():
+				if h := registry.byPathStat(ev.Name); h != nil {
+					registry.rename(h.Path, ev.Name)
+					break
+				}
+
+				if strings.Contains(ev.Name, "logrotate_temp") {
+					break
+				}
+
 				path, ok := lrStrip(ev.Name)
 				if !ok {
 					break
 				}
-				if h, ok := harvesters[path]; ok {
+
+				if h := registry.byPath(path); h != nil {
 					h.nextPath = ev.Name
 				}
 			}
