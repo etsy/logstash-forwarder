@@ -10,10 +10,10 @@ import (
 type fileId string
 
 type hregistry struct {
+	sync.RWMutex
 	runningIds   map[fileId]*Harvester
 	runningPaths map[string]*Harvester
 	paths        map[string]bool
-	mu           sync.RWMutex
 }
 
 func newRegistry(conf *Config) *hregistry {
@@ -31,8 +31,8 @@ func newRegistry(conf *Config) *hregistry {
 }
 
 func (r hregistry) register(v *Harvester) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.Lock()
+	defer r.Unlock()
 
 	id, err := v.fileId()
 	if err != nil {
@@ -55,8 +55,8 @@ func (r hregistry) register(v *Harvester) error {
 }
 
 func (r hregistry) unregister(v *Harvester) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.Lock()
+	defer r.Unlock()
 
 	id, err := v.fileId()
 	if err != nil {
@@ -78,8 +78,8 @@ func (r hregistry) unregister(v *Harvester) error {
 }
 
 func (r hregistry) byPath(path string) *Harvester {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.RLock()
+	defer r.RUnlock()
 
 	return r.runningPaths[path]
 }
@@ -94,20 +94,19 @@ func (r hregistry) byPathStat(path string) *Harvester {
 }
 
 func (r hregistry) byId(id fileId) *Harvester {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.RLock()
+	defer r.RUnlock()
 
 	return r.runningIds[id]
 }
 
 func (r hregistry) rename(prev, curr string) {
-	log.Printf("registry renaming %s to %s", prev, curr)
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.Lock()
+	defer r.Unlock()
 
-	h := r.byPath(prev)
-	if h == nil {
-		log.Printf("registry didn't have a record for any harvester at %s", prev)
+	h, ok := r.runningPaths[prev]
+	if !ok {
+		// log.Printf("registry didn't have a record for any harvester at %s", prev)
 		return
 	}
 
@@ -115,6 +114,8 @@ func (r hregistry) rename(prev, curr string) {
 		log.Printf("registry rename failed sanity check: harvester's prev path %s does not match expected path %s", h.Path, prev)
 		return
 	}
+
+	log.Printf("file renamed: %s -> %s", prev, curr)
 	h.Path = curr
 	h.moved = true
 	r.runningPaths[curr] = h
