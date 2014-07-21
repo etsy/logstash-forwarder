@@ -7,13 +7,11 @@ import (
 	"crypto/x509"
 	"encoding/binary"
 	"encoding/pem"
-	"io"
 	"io/ioutil"
 	"log"
 	"math/rand"
 	"net"
 	"os"
-	"strconv"
 	"time"
 )
 
@@ -50,7 +48,7 @@ func Publishv1(input chan eventPage, registrar chan eventPage, config *NetworkCo
 
 		for _, event := range page {
 			sequence += 1
-			writeDataFrame(event, sequence, compressor)
+			event.writeFrame(compressor, sequence)
 		}
 		compressor.Flush()
 		compressor.Close()
@@ -195,30 +193,4 @@ func connect(config *NetworkConfig, id int) (socket *tls.Conn) {
 		return
 	}
 	panic("not reached")
-}
-
-func writeDataFrame(event *FileEvent, sequence uint32, output io.Writer) {
-	//log.Printf("event: %s\n", *event.Text)
-	// header, "1D"
-	output.Write([]byte("1D"))
-	// sequence number
-	binary.Write(output, binary.BigEndian, uint32(sequence))
-	// 'pair' count
-	binary.Write(output, binary.BigEndian, uint32(len(event.Fields)+4))
-
-	writeKV("file", event.Source, output)
-	writeKV("host", hostname, output)
-	writeKV("offset", strconv.FormatInt(event.Offset, 10), output)
-	writeKV("line", event.Text, output)
-	for k, v := range event.Fields {
-		writeKV(k, v, output)
-	}
-}
-
-func writeKV(key string, value string, output io.Writer) {
-	//log.Printf("kv: %d/%s %d/%s\n", len(key), key, len(value), value)
-	binary.Write(output, binary.BigEndian, uint32(len(key)))
-	output.Write([]byte(key))
-	binary.Write(output, binary.BigEndian, uint32(len(value)))
-	output.Write([]byte(value))
 }
