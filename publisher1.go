@@ -31,7 +31,6 @@ func Publishv1(input chan eventPage, registrar chan eventPage, config *NetworkCo
 		buffer   bytes.Buffer
 		socket   *tls.Conn
 		sequence uint32
-		err      error
 	)
 	id := publisherId
 	publisherId++
@@ -74,31 +73,18 @@ func Publishv1(input chan eventPage, registrar chan eventPage, config *NetworkCo
 			// network timeout.
 			socket.SetDeadline(time.Now().Add(config.timeout))
 
+			w := &errorWriter{Writer: socket}
+
 			// Set the window size to the length of this payload in events.
-			_, err = socket.Write([]byte("1W"))
-			if err != nil {
-				oops(err)
-				continue
-			}
-			err = binary.Write(socket, binary.BigEndian, uint32(len(page)))
-			if err != nil {
-				oops(err)
-				continue
-			}
+			w.Write([]byte("1W"))
+			binary.Write(w, binary.BigEndian, uint32(len(page)))
 
 			// Write compressed frame
-			_, err = socket.Write([]byte("1C"))
-			if err != nil {
-				oops(err)
-				continue
-			}
-			err = binary.Write(socket, binary.BigEndian, uint32(len(compressed_payload)))
-			if err != nil {
-				oops(err)
-				continue
-			}
-			_, err = socket.Write(compressed_payload)
-			if err != nil {
+			w.Write([]byte("1C"))
+			binary.Write(w, binary.BigEndian, uint32(len(compressed_payload)))
+			w.Write(compressed_payload)
+
+			if err := w.Err(); err != nil {
 				oops(err)
 				continue
 			}
