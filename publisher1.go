@@ -25,33 +25,36 @@ func init() {
 
 var publisherId = 0
 
-// writes to the network, notifies registrar
-func Publishv1(input chan eventPage, registrar chan eventPage, config *NetworkConfig) {
-	var (
-		buffer   bytes.Buffer
-		socket   *tls.Conn
-		sequence uint32
-	)
-	id := publisherId
-	publisherId++
-	sequence = 1 // <-- this is what happens when sysadmins write systems.
+type Publisher struct {
+	id       int
+	buffer   bytes.Buffer
+	socket   *tls.Conn
+	sequence uint32
+}
 
-	socket = connect(config, id)
+func newPublisher() *Publisher {
+	p := Publisher{id: publisherId, sequence: 1}
+	publisherId++
+	return &p
+}
+
+func (p *Publisher) publish(input chan eventPage, registrar chan eventPage, config *NetworkConfig) {
+	p.socket = connect(config, p.id)
 	defer func() {
-		log.Printf("publisher %v done", id)
-		socket.Close()
+		log.Printf("publisher %v done", p.id)
+		p.socket.Close()
 	}()
 
 	for page := range input {
-		if err := page.compress(sequence, &buffer); err != nil {
+		if err := page.compress(p.sequence, &p.buffer); err != nil {
 			log.Println(err)
 			//  if we hit this, we've lost log lines.  This is potentially
 			//  fatal and should alert a human.
 			continue
 		}
-		sequence += uint32(len(page))
+		p.sequence += uint32(len(page))
 
-		compressed_payload := buffer.Bytes()
+		compressed_payload := p.buffer.Bytes()
 
 		// Send buffer until we're successful...
 		oops := func(err error) {
@@ -62,17 +65,17 @@ func Publishv1(input chan eventPage, registrar chan eventPage, config *NetworkCo
 			// things seem healthy.
 			log.Printf("Socket error, will reconnect: %s\n", err)
 			time.Sleep(1 * time.Second)
-			socket.Close()
-			socket = connect(config, id)
+			p.socket.Close()
+			p.socket = connect(config, p.id)
 		}
 
 	SendPayload:
 		for {
 			// Abort if our whole request takes longer than the configured
 			// network timeout.
-			socket.SetDeadline(time.Now().Add(config.timeout))
+			p.socket.SetDeadline(time.Now().Add(config.timeout))
 
-			w := &errorWriter{Writer: socket}
+			w := &errorWriter{Writer: p.socket}
 
 			// Set the window size to the length of this payload in events.
 			w.Write([]byte("1W"))
@@ -92,11 +95,11 @@ func Publishv1(input chan eventPage, registrar chan eventPage, config *NetworkCo
 			response := make([]byte, 0, 6)
 			ackbytes := 0
 			for ackbytes != 6 {
-				n, err := socket.Read(response[len(response):cap(response)])
+				n, err := p.socket.Read(response[len(response):cap(response)])
 				if err != nil {
 					log.Printf("Read error looking for ack: %s\n", err)
-					socket.Close()
-					socket = connect(config, id)
+					p.socket.Close()
+					p.socket = connect(config, p.id)
 					continue SendPayload // retry sending on new connection
 				} else {
 					ackbytes += n
@@ -111,7 +114,8 @@ func Publishv1(input chan eventPage, registrar chan eventPage, config *NetworkCo
 		// Tell the registrar that we've successfully sent these events
 		registrar <- page
 	} /* for each event payload */
-} // Publish
+
+}
 
 func connect(config *NetworkConfig, id int) (socket *tls.Conn) {
 	var tlsconfig tls.Config

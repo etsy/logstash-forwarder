@@ -87,7 +87,8 @@ func main() {
 	}
 	for i := 0; i < *num_workers; i++ {
 		log.Printf("adding publish worker")
-		go Publishv1(publisher_chan, registrar_chan, &config.Network)
+		p := newPublisher()
+		go p.publish(publisher_chan, registrar_chan, &config.Network)
 	}
 
 	// registrar records last acknowledged positions in all files.
