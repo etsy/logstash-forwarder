@@ -1,5 +1,11 @@
 package main
 
+import (
+	"bytes"
+	"compress/zlib"
+	"fmt"
+)
+
 type eventPage []*FileEvent
 
 func (p *eventPage) progress() progress {
@@ -38,4 +44,24 @@ func (p *eventPage) counts() (map[string]int, map[string]int) {
 
 func (p *eventPage) empty() bool {
 	return len(*p) == 0
+}
+
+// compress the event page into the destination buffer
+func (p *eventPage) compress(sequenceId uint32, buf *bytes.Buffer) error {
+	buf.Reset()
+	z, err := zlib.NewWriterLevel(buf, 3)
+	if err != nil {
+		return fmt.Errorf("unable to compress eventPage: %v", err)
+	}
+
+	for i, e := range *p {
+		e.writeFrame(z, sequenceId+uint32(i))
+	}
+	if err := z.Flush(); err != nil {
+		return fmt.Errorf("unable to compress eventPage: %v", err)
+	}
+	if err := z.Close(); err != nil {
+		return fmt.Errorf("unable to compress eventPage: %v", err)
+	}
+	return nil
 }

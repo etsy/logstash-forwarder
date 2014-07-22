@@ -2,7 +2,7 @@ package main
 
 import (
 	"bytes"
-	"compress/zlib"
+	// "compress/zlib"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/binary"
@@ -34,6 +34,7 @@ func Publishv1(input chan eventPage, registrar chan eventPage, config *NetworkCo
 	)
 	id := publisherId
 	publisherId++
+	sequence = 1 // <-- this is what happens when sysadmins write systems.
 
 	socket = connect(config, id)
 	defer func() {
@@ -42,15 +43,13 @@ func Publishv1(input chan eventPage, registrar chan eventPage, config *NetworkCo
 	}()
 
 	for page := range input {
-		buffer.Truncate(0)
-		compressor, _ := zlib.NewWriterLevel(&buffer, 3)
-
-		for _, event := range page {
-			sequence += 1
-			event.writeFrame(compressor, sequence)
+		if err := page.compress(sequence, &buffer); err != nil {
+			log.Println(err)
+			//  if we hit this, we've lost log lines.  This is potentially
+			//  fatal and should alert a human.
+			continue
 		}
-		compressor.Flush()
-		compressor.Close()
+		sequence += uint32(len(page))
 
 		compressed_payload := buffer.Bytes()
 
