@@ -38,7 +38,7 @@ func newPublisher() *Publisher {
 }
 
 func (p *Publisher) publish(input chan eventPage, registrar chan eventPage, config *NetworkConfig) {
-	p.socket = connect(config, p.id)
+	p.connect(config, p.id)
 	defer func() {
 		log.Printf("publisher %v done", p.id)
 		p.socket.Close()
@@ -65,7 +65,7 @@ func (p *Publisher) publish(input chan eventPage, registrar chan eventPage, conf
 			log.Printf("Socket error, will reconnect: %s\n", err)
 			time.Sleep(1 * time.Second)
 			p.socket.Close()
-			p.socket = connect(config, p.id)
+			p.connect(config, p.id)
 		}
 
 	SendPayload:
@@ -98,7 +98,7 @@ func (p *Publisher) publish(input chan eventPage, registrar chan eventPage, conf
 				if err != nil {
 					log.Printf("Read error looking for ack: %s\n", err)
 					p.socket.Close()
-					p.socket = connect(config, p.id)
+					p.connect(config, p.id)
 					continue SendPayload // retry sending on new connection
 				} else {
 					ackbytes += n
@@ -116,7 +116,7 @@ func (p *Publisher) publish(input chan eventPage, registrar chan eventPage, conf
 
 }
 
-func connect(config *NetworkConfig, id int) (socket *tls.Conn) {
+func (p *Publisher) connect(config *NetworkConfig, id int) {
 	tlsconfig, err := config.TLS()
 	if err != nil {
 		// this was always a fatal but it shouldn't be.  This is enough change
@@ -136,19 +136,17 @@ func connect(config *NetworkConfig, id int) (socket *tls.Conn) {
 			continue
 		}
 
-		socket = tls.Client(tcpsocket, tlsconfig)
-		socket.SetDeadline(time.Now().Add(config.timeout))
-		err = socket.Handshake()
+		p.socket = tls.Client(tcpsocket, tlsconfig)
+		p.socket.SetDeadline(time.Now().Add(config.timeout))
+		err = p.socket.Handshake()
 		if err != nil {
 			log.Printf("Failed to tls handshake with %s %s\n", address, err)
 			time.Sleep(1 * time.Second)
-			socket.Close()
+			p.socket.Close()
 			continue
 		}
 
 		log.Printf("Publisher %v connected to %s\n", id, address)
-
-		// connected, let's rock and roll.
 		return
 	}
 	panic("not reached")
