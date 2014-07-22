@@ -2,12 +2,8 @@ package main
 
 import (
 	"bytes"
-	// "compress/zlib"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/binary"
-	"encoding/pem"
-	"io/ioutil"
 	"log"
 	"math/rand"
 	"net"
@@ -33,7 +29,10 @@ type Publisher struct {
 }
 
 func newPublisher() *Publisher {
-	p := Publisher{id: publisherId, sequence: 1}
+	p := Publisher{
+		id:       publisherId,
+		sequence: 1,
+	}
 	publisherId++
 	return &p
 }
@@ -118,40 +117,11 @@ func (p *Publisher) publish(input chan eventPage, registrar chan eventPage, conf
 }
 
 func connect(config *NetworkConfig, id int) (socket *tls.Conn) {
-	var tlsconfig tls.Config
-
-	if len(config.SSLCertificate) > 0 && len(config.SSLKey) > 0 {
-		log.Printf("Loading client ssl certificate: %s and %s\n",
-			config.SSLCertificate, config.SSLKey)
-		cert, err := tls.LoadX509KeyPair(config.SSLCertificate, config.SSLKey)
-		if err != nil {
-			log.Fatalf("Failed loading client ssl certificate: %s\n", err)
-		}
-		tlsconfig.Certificates = []tls.Certificate{cert}
-	}
-
-	if len(config.SSLCA) > 0 {
-		log.Printf("Setting trusted CA from file: %s\n", config.SSLCA)
-		tlsconfig.RootCAs = x509.NewCertPool()
-
-		pemdata, err := ioutil.ReadFile(config.SSLCA)
-		if err != nil {
-			log.Fatalf("Failure reading CA certificate: %s\n", err)
-		}
-
-		block, _ := pem.Decode(pemdata)
-		if block == nil {
-			log.Fatalf("Failed to decode PEM data, is %s a valid cert?\n", config.SSLCA)
-		}
-		if block.Type != "CERTIFICATE" {
-			log.Fatalf("This is not a certificate file: %s\n", config.SSLCA)
-		}
-
-		cert, err := x509.ParseCertificate(block.Bytes)
-		if err != nil {
-			log.Fatalf("Failed to parse a certificate: %s\n", config.SSLCA)
-		}
-		tlsconfig.RootCAs.AddCert(cert)
+	tlsconfig, err := config.TLS()
+	if err != nil {
+		// this was always a fatal but it shouldn't be.  This is enough change
+		// for one commit.  I'll make this not a fatal soon enough.
+		log.Fatalf("unable to connect: %v", err)
 	}
 
 	for {
@@ -166,7 +136,7 @@ func connect(config *NetworkConfig, id int) (socket *tls.Conn) {
 			continue
 		}
 
-		socket = tls.Client(tcpsocket, &tlsconfig)
+		socket = tls.Client(tcpsocket, tlsconfig)
 		socket.SetDeadline(time.Now().Add(config.timeout))
 		err = socket.Handshake()
 		if err != nil {

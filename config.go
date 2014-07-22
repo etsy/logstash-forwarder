@@ -1,8 +1,12 @@
 package main
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"log"
 	"os"
 	"time"
 )
@@ -34,6 +38,29 @@ type NetworkConfig struct {
 	SSLCA          string   `json:"ssl ca"`
 	Timeout        int64    `json:timeout`
 	timeout        time.Duration
+}
+
+func (n *NetworkConfig) TLS() (*tls.Config, error) {
+	var c tls.Config
+	if n.SSLCertificate != "" && n.SSLKey != "" {
+		cert, err := tls.LoadX509KeyPair(n.SSLCertificate, n.SSLKey)
+		if err != nil {
+			log.Printf("cert: %s, key: %s", n.SSLCertificate, n.SSLKey)
+			return nil, fmt.Errorf("unable to load x509 keypair: %v", err)
+		}
+		c.Certificates = []tls.Certificate{cert}
+	}
+	c.RootCAs = x509.NewCertPool()
+	if n.SSLCA != "" {
+		raw, err := ioutil.ReadFile(n.SSLCA)
+		if err != nil {
+			return nil, fmt.Errorf("unable to read CA from file: %v", err)
+		}
+		if !c.RootCAs.AppendCertsFromPEM(raw) {
+			return nil, fmt.Errorf("illegal x509 CA")
+		}
+	}
+	return &c, nil
 }
 
 type FileConfig struct {
