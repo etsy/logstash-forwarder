@@ -48,13 +48,14 @@ func (p *Publisher) publish(input chan eventPage, registrar chan eventPage) {
 		p.sequence += uint32(len(page))
 		compressed_payload := p.buffer.Bytes()
 
-	SendPayload:
 		if err := p.sendPayload(len(page), compressed_payload); err != nil {
-			log.Printf("Socket error, will reconnect: %s\n", err)
-			time.Sleep(1 * time.Second)
+			input <- page
+			sleep := time.Duration(1e9 + rand.Intn(1e10))
+			log.Printf("Socket error, will reconnect in %v: %s\n", sleep, err)
+			time.Sleep(sleep)
 			p.socket.Close()
 			p.connect()
-			goto SendPayload
+			continue
 		}
 
 		// read ack
@@ -64,9 +65,11 @@ func (p *Publisher) publish(input chan eventPage, registrar chan eventPage) {
 			n, err := p.socket.Read(response[len(response):cap(response)])
 			if err != nil {
 				log.Printf("Read error looking for ack: %s\n", err)
+				log.Println("page will be re-sent")
+				input <- page
 				p.socket.Close()
 				p.connect()
-				goto SendPayload // retry sending on new connection
+				continue
 			} else {
 				ackbytes += n
 			}
@@ -75,6 +78,7 @@ func (p *Publisher) publish(input chan eventPage, registrar chan eventPage) {
 		// TODO(sissel): verify ack
 
 		// Tell the registrar that we've successfully sent these events
+		log.Printf("publisher %d sent %d events to %s", p.id, len(page), p.addr)
 		registrar <- page
 	} /* for each event payload */
 
@@ -101,15 +105,18 @@ func (p *Publisher) connect() {
 	for {
 		sock, err := net.DialTimeout("tcp", p.addr, p.timeout)
 		if err != nil {
+			sleep := time.Duration(1e9 + rand.Intn(1e10))
 			log.Printf("Failure connecting publisher %v to %s: %s\n", p.id, p.addr, err)
-			time.Sleep(1 * time.Second)
+			log.Printf("reconnect in %v", sleep)
+			time.Sleep(sleep)
 			continue
 		}
 		p.socket = tls.Client(sock, &p.tlsConfig)
 		p.socket.SetDeadline(time.Now().Add(p.timeout))
 		if err := p.socket.Handshake(); err != nil {
+			sleep := time.Duration(1e9 + rand.Intn(1e10))
 			log.Printf("Failed to tls handshake with %s %s\n", p.addr, err)
-			time.Sleep(1 * time.Second)
+			time.Sleep(sleep)
 			p.socket.Close()
 		}
 		log.Printf("Publisher %v connected to %s\n", p.id, p.addr)
