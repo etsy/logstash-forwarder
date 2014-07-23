@@ -22,23 +22,17 @@ func init() {
 var publisherId = 0
 
 type Publisher struct {
-	id       int
-	buffer   bytes.Buffer
-	socket   *tls.Conn
-	sequence uint32
+	id        int           // unique publisher id
+	buffer    bytes.Buffer  // recyclable buffer for data to be sent
+	socket    *tls.Conn     // currently active connection. may be nil.
+	sequence  uint32        // incremental event id for current connection.
+	addr      string        // tcp address to connect to
+	tlsConfig tls.Config    // tls config to use for establishing secure connection
+	timeout   time.Duration // send timeout
 }
 
-func newPublisher() *Publisher {
-	p := Publisher{
-		id:       publisherId,
-		sequence: 1,
-	}
-	publisherId++
-	return &p
-}
-
-func (p *Publisher) publish(input chan eventPage, registrar chan eventPage, config *NetworkConfig) {
-	p.connect(config, p.id)
+func (p *Publisher) publish(input chan eventPage, registrar chan eventPage) {
+	p.connect()
 	defer func() {
 		log.Printf("publisher %v done", p.id)
 		p.socket.Close()
@@ -55,11 +49,11 @@ func (p *Publisher) publish(input chan eventPage, registrar chan eventPage, conf
 		compressed_payload := p.buffer.Bytes()
 
 	SendPayload:
-		if err := p.sendPayload(len(page), compressed_payload, config.timeout); err != nil {
+		if err := p.sendPayload(len(page), compressed_payload); err != nil {
 			log.Printf("Socket error, will reconnect: %s\n", err)
 			time.Sleep(1 * time.Second)
 			p.socket.Close()
-			p.connect(config, p.id)
+			p.connect()
 			goto SendPayload
 		}
 
@@ -71,7 +65,7 @@ func (p *Publisher) publish(input chan eventPage, registrar chan eventPage, conf
 			if err != nil {
 				log.Printf("Read error looking for ack: %s\n", err)
 				p.socket.Close()
-				p.connect(config, p.id)
+				p.connect()
 				goto SendPayload // retry sending on new connection
 			} else {
 				ackbytes += n
@@ -86,8 +80,8 @@ func (p *Publisher) publish(input chan eventPage, registrar chan eventPage, conf
 
 }
 
-func (p *Publisher) sendPayload(size int, payload []byte, timeout time.Duration) error {
-	p.socket.SetDeadline(time.Now().Add(timeout))
+func (p *Publisher) sendPayload(size int, payload []byte) error {
+	p.socket.SetDeadline(time.Now().Add(p.timeout))
 
 	w := &errorWriter{Writer: p.socket}
 
@@ -103,38 +97,22 @@ func (p *Publisher) sendPayload(size int, payload []byte, timeout time.Duration)
 	return w.Err()
 }
 
-func (p *Publisher) connect(config *NetworkConfig, id int) {
-	tlsconfig, err := config.TLS()
-	if err != nil {
-		// this was always a fatal but it shouldn't be.  This is enough change
-		// for one commit.  I'll make this not a fatal soon enough.
-		log.Fatalf("unable to connect: %v", err)
-	}
-
+func (p *Publisher) connect() {
 	for {
-		// Pick a random server from the list.
-		address := config.Servers[rand.Int()%len(config.Servers)]
-		log.Printf("Connecting publisher %v to %s\n", id, address)
-
-		tcpsocket, err := net.DialTimeout("tcp", address, config.timeout)
+		sock, err := net.DialTimeout("tcp", p.addr, p.timeout)
 		if err != nil {
-			log.Printf("Failure connecting publisher %v to %s: %s\n", id, address, err)
+			log.Printf("Failure connecting publisher %v to %s: %s\n", p.id, p.addr, err)
 			time.Sleep(1 * time.Second)
 			continue
 		}
-
-		p.socket = tls.Client(tcpsocket, tlsconfig)
-		p.socket.SetDeadline(time.Now().Add(config.timeout))
-		err = p.socket.Handshake()
-		if err != nil {
-			log.Printf("Failed to tls handshake with %s %s\n", address, err)
+		p.socket = tls.Client(sock, &p.tlsConfig)
+		p.socket.SetDeadline(time.Now().Add(p.timeout))
+		if err := p.socket.Handshake(); err != nil {
+			log.Printf("Failed to tls handshake with %s %s\n", p.addr, err)
 			time.Sleep(1 * time.Second)
 			p.socket.Close()
-			continue
 		}
-
-		log.Printf("Publisher %v connected to %s\n", id, address)
+		log.Printf("Publisher %v connected to %s\n", p.id, p.addr)
 		return
 	}
-	panic("not reached")
 }

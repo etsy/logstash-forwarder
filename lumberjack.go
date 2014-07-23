@@ -10,6 +10,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -50,6 +51,29 @@ func setupLogging() {
 	}
 }
 
+func shutdown(v interface{}) {
+	log.Fatal(v)
+}
+
+func startPublishers(conf *NetworkConfig, in, out chan eventPage) error {
+	tlsConfig, err := conf.TLS()
+	if err != nil {
+		return fmt.Errorf("unable to start publishers: %v", err)
+	}
+
+	for i, server := range conf.Servers {
+		p := &Publisher{
+			id:        i,
+			sequence:  1,
+			addr:      server,
+			tlsConfig: *tlsConfig,
+			timeout:   conf.timeout,
+		}
+		go p.publish(in, out)
+	}
+	return nil
+}
+
 func main() {
 	flag.Parse()
 	runtime.GOMAXPROCS(*num_threads)
@@ -82,13 +106,8 @@ func main() {
 	// Harvesters dump events into the spooler.
 	go Spool(event_chan, publisher_chan, *spool_size, *idle_timeout)
 
-	if *num_workers <= 0 {
-		*num_workers = default_workers
-	}
-	for i := 0; i < *num_workers; i++ {
-		log.Printf("adding publish worker")
-		p := newPublisher()
-		go p.publish(publisher_chan, registrar_chan, &config.Network)
+	if err := startPublishers(&config.Network, publisher_chan, registrar_chan); err != nil {
+		shutdown(err)
 	}
 
 	// registrar records last acknowledged positions in all files.
