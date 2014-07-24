@@ -59,10 +59,10 @@ func (p *Publisher) publish(input chan eventPage, registrar chan eventPage) {
 		}
 
 		// read ack
-		response := make([]byte, 0, 6)
+		response := make([]byte, 6)
 		ackbytes := 0
 		for ackbytes != 6 {
-			n, err := p.socket.Read(response[len(response):cap(response)])
+			n, err := p.socket.Read(response)
 			if err != nil {
 				log.Printf("Read error looking for ack: %s\n", err)
 				log.Println("page will be re-sent")
