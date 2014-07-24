@@ -90,7 +90,7 @@ func main() {
 	registry = newRegistry(config)
 
 	event_chan = make(chan *FileEvent, 16)
-	publisher_chan := make(chan eventPage, 1)
+	publisher_chan := make(chan eventPage, len(config.Network.Servers))
 	registrar_chan := make(chan eventPage, 1)
 
 	if len(config.Files) == 0 {
