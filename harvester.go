@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -41,6 +42,24 @@ type Harvester struct {
 	out      chan *FileEvent
 
 	nextPath string
+}
+
+func (h *Harvester) MarshalJSON() ([]byte, error) {
+	type t struct {
+		Path   string            `json:"path"`
+		Id     fileId            `json:"id"`
+		Fields map[string]string `json:"fields"`
+	}
+	id, err := h.fileId()
+	if err != nil {
+		return nil, err
+	}
+	v := t{
+		Path:   h.Path,
+		Id:     id,
+		Fields: h.Fields,
+	}
+	return json.Marshal(v)
 }
 
 // readlines reads lines from the harvester's existing file handle.  readlines

@@ -57,11 +57,11 @@ var infoCmd = cmd{
 	name: "info",
 	run: func(args []string, w io.Writer) {
 		fmt.Fprintln(w, "[inode_harvesters]")
-		for id, h := range registry.runningIds {
+		for id, h := range registry.RunningIds {
 			fmt.Fprintf(w, "%v: %v\n", id, h)
 		}
 		fmt.Fprintln(w, "[name_harvesters]")
-		for path, h := range registry.runningPaths {
+		for path, h := range registry.RunningPaths {
 			fmt.Fprintf(w, "%v: %v\n", path, h)
 		}
 		fmt.Fprintln(w, registry)

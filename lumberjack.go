@@ -9,9 +9,11 @@
 package main
 
 import (
+	_ "expvar"
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"runtime"
@@ -32,6 +34,7 @@ var (
 	temp_dir        = flag.String("temp-dir", "/tmp", "directory for creating temp files")
 	num_threads     = flag.Int("threads", 1, "Number of OS threads to use")
 	cmd_port        = flag.Int("cmd-port", 42586, "tcp command port number")
+	http_port       = flag.String("http", "", "http port for debug info. No http server is run if this is left off. E.g.: http=:6060")
 
 	event_chan chan *FileEvent
 	registry   *hregistry
@@ -74,6 +77,17 @@ func startPublishers(conf *NetworkConfig, in, out chan eventPage) error {
 	return nil
 }
 
+func startHttp() {
+	if *http_port != "" {
+		log.Printf("starting http debug port on %s", *http_port)
+		if err := http.ListenAndServe(*http_port, nil); err != nil {
+			log.Printf("unable to open http port: %v", err)
+		}
+	} else {
+		log.Println("no http port specified")
+	}
+}
+
 func main() {
 	flag.Parse()
 	runtime.GOMAXPROCS(*num_threads)
@@ -112,6 +126,7 @@ func main() {
 
 	// registrar records last acknowledged positions in all files.
 	go Registrar(registrar_chan)
+	go startHttp()
 	awaitSignals()
 }
 
