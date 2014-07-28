@@ -42,6 +42,16 @@ func (p *eventPage) counts() (map[string]int, map[string]int) {
 	return total, bad
 }
 
+func (p *eventPage) countString() string {
+	var buf bytes.Buffer
+	counts, _ := p.counts()
+	for path, count := range counts {
+		fmt.Fprintf(&buf, "%s: %d, ", path, count)
+	}
+	s := buf.String()
+	return s[0 : len(s)-2]
+}
+
 func (p *eventPage) empty() bool {
 	return len(*p) == 0
 }
