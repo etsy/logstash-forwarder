@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -15,6 +16,7 @@ import (
 const (
 	h_Rewind = 1 << iota
 	h_NoRegister
+	h_StartAtEnd
 )
 
 // harvester file handle status
@@ -27,141 +29,175 @@ const (
 	hf_Gone
 )
 
-// type Harvester is responsible for tailing a single log file and emitting FileEvents.
+// type Harvester is responsible for tailing a single log file and emitting
+// FileEvents.  A harvester never changes which inode it points to.
 type Harvester struct {
 	Path   string
 	Fields map[string]string
-	Offset int64
 
-	moved     bool // this is set when the file has been moved by logrotate
-	file      *os.File
-	fi        os.FileInfo
-	lastRead  time.Time
-	lines     chan string
-	out       chan *FileEvent
-	lineCount uint64 // do we really need this?
+	moved    bool // this is set when the file has been moved by logrotate
+	file     *os.File
+	fi       os.FileInfo
+	lastRead time.Time
+	out      chan *FileEvent
 
-	truncLine   string
-	truncOffset int64
+	nextPath string
 }
 
+func (h *Harvester) MarshalJSON() ([]byte, error) {
+	type t struct {
+		Path   string            `json:"path"`
+		Id     fileId            `json:"id"`
+		Fields map[string]string `json:"fields"`
+	}
+	id, err := h.fileId()
+	if err != nil {
+		return nil, err
+	}
+	v := t{
+		Path:   h.Path,
+		Id:     id,
+		Fields: h.Fields,
+	}
+	return json.Marshal(v)
+}
+
+// readlines reads lines from the harvester's existing file handle.  readlines
+// does not open or seek a file on its own.
 func (h *Harvester) readlines(timeout time.Duration) {
-	defer close(h.lines)
+	if err := registry.register(h); err != nil {
+		log.Printf("readlines unable to register: %v", err)
+		return
+	}
+	defer registry.unregister(h)
+
 	r := bufio.NewReader(h.file)
 	var last string
 
+	offset, err := h.fileOffset()
+	if err != nil {
+		log.Printf("unable to read file offset in readlines: %v", err)
+		return
+	}
+
 	for {
+		h.lastRead = time.Now()
 		line, err := r.ReadString('\n')
 		if line != "" {
 			last = line
 		}
-		offset := h.Offset
 		switch err {
 		case io.EOF:
 			if line != "" {
 				log.Printf("harvester hit EOF in %s with line", h.Path)
-				h.lastRead = time.Now()
-				h.lines <- line
+				h.emit(line, offset)
 				time.Sleep(1 * time.Second)
-				log.Printf("hit EOF in %s", h.Path)
-				continue
+				break
 			}
-			if _, err := h.autoRewind(offset, last); err != nil {
+			if rewound, err := h.autoRewind(offset, last); err != nil {
 				log.Printf("harvester for file %s stopping: %v", h.Path, err)
 				return
+			} else if rewound {
+				offset = 0
 			}
 			if time.Since(h.lastRead) > timeout {
 				log.Printf("harvester timed out: %s", h.Path)
 				return
 			}
 			time.Sleep(1 * time.Second)
-			continue
 		case nil:
-			h.lastRead = time.Now()
-			h.lines <- line
+			h.emit(line, offset)
 		default:
-			log.Printf("unable to read line in harvester: %s", err.Error())
+			log.Printf("unable to read line in harvester: %v", err)
 			return
 		}
+		offset += int64(len(line))
 	}
 }
 
-func (h *Harvester) emit(text string) {
-	rawTextWidth := int64(len(text))
-	text = strings.TrimSpace(text)
-	h.lineCount++
-
-	event := &FileEvent{
-		Source:   &h.Path,
-		Offset:   h.Offset,
-		Line:     h.lineCount,
-		Text:     &text,
+// the event method takes a line of text found at a byte offset in the
+// harvester's current file and wraps it in a *FileEvent object, adding some
+// file-level context to the FileEvent.
+func (h *Harvester) event(text string, offset int64) *FileEvent {
+	e := &FileEvent{
+		Source:   h.Path,
+		Offset:   offset,
+		Text:     strings.TrimSpace(text),
 		Fields:   h.Fields,
 		Rotated:  h.moved,
 		fileinfo: h.fi,
 	}
 	if h.moved {
-		event.Fields["rotated"] = "true"
+		e.Fields["rotated"] = "true"
 	} else {
-		event.Fields["rotated"] = "false"
+		e.Fields["rotated"] = "false"
 	}
+	return e
+}
 
-	h.Offset += rawTextWidth
+func (h *Harvester) emit(text string, offset int64) {
+	h.out <- h.event(text, offset)
+}
 
-	if text == "" {
+func (h *Harvester) fileOffset() (int64, error) {
+	return h.file.Seek(0, os.SEEK_CUR)
+}
+
+func (h *Harvester) fileId() (fileId, error) {
+	if h.fi == nil {
+		return "", fmt.Errorf("harvester has no file handle")
+	}
+	return filestring(h.fi), nil
+}
+
+func (h *Harvester) Harvest(offset int64, opt int) {
+	defer log.Printf("harvester done reading file %s", h.Path)
+	watchDir(filepath.Dir(h.Path))
+	log.Printf("Starting harvester: %s\n", h.Path)
+
+	h.open(offset, opt)
+	defer h.file.Close()
+
+	h.readlines(24 * time.Hour)
+}
+
+func (h *Harvester) resume(offset int64, line string) {
+	defer log.Printf("harvester done reading file %s", h.Path)
+	log.Printf("trying to resume %s at offset %d", h.Path, offset)
+	if h.Path == "-" {
+		log.Printf("illegal attempt to resume stdin at offset %d", offset)
 		return
 	}
 
-	h.out <- event
-}
-
-func (h *Harvester) Harvest(opt int) {
-	defer log.Printf("harvester done reading file %s", h.Path)
-	if !(opt&h_NoRegister > 0) {
-		registerHarvester(h)
-	}
-	watchDir(filepath.Dir(h.Path))
-	if h.Offset > 0 {
-		log.Printf("Starting harvester at position %d: %s\n", h.Offset, h.Path)
-	} else {
-		log.Printf("Starting harvester: %s\n", h.Path)
-	}
-
-	h.open(opt)
+	h.open(offset, 0)
 	defer h.file.Close()
 
-	h.lineCount = 0
-
-	// get current offset in file
-	var err error
-	h.Offset, err = h.file.Seek(0, os.SEEK_CUR)
+	b := make([]byte, len(line))
+	_, err := h.file.ReadAt(b, offset-int64(len(line)))
 	if err != nil {
-		log.Printf("ERROR: unable to seek in file %s: %v\n", h.Path, err)
+		log.Printf("couldn't read resume line: %v", err)
+		return
 	}
-
-	log.Printf("Current file offset: %d\n", h.Offset)
-
-	h.lastRead = time.Now()
-	h.lines = make(chan string)
-	go h.readlines(24 * time.Hour)
-
-	for line := range h.lines {
-		h.emit(line)
+	if line == string(b) {
+		h.readlines(24 * time.Hour)
 	}
 }
 
 // checks to see if the file has been truncated, and if so, rewinds the file
 // handle.
 func (h *Harvester) autoRewind(offset int64, line string) (bool, error) {
-	s, err := h.status()
+	s, err := h.status(offset)
 	switch s {
 	case hf_Err:
 		return false, fmt.Errorf("unable to autoRewind: %v", err)
 	case hf_Ok:
-		return true, nil
+		return false, nil
 	case hf_Trunc:
-		h.truncOffset = offset
-		h.truncLine = line
+		if h.nextPath != "" {
+			newh := Harvester{Path: h.nextPath, Fields: h.Fields, out: h.out}
+			go newh.resume(offset, line)
+			h.nextPath = ""
+		}
 		return true, h.rewind()
 	case hf_Gone:
 		return false, fmt.Errorf("file is gone: %s", h.Path)
@@ -170,7 +206,7 @@ func (h *Harvester) autoRewind(offset int64, line string) (bool, error) {
 	}
 }
 
-func (h *Harvester) status() (hfStatus, error) {
+func (h *Harvester) status(offset int64) (hfStatus, error) {
 	info, err := h.file.Stat()
 	if err != nil {
 		return hf_Err, fmt.Errorf("unable to stat file in harvester: %s", err.Error())
@@ -178,14 +214,15 @@ func (h *Harvester) status() (hfStatus, error) {
 	if info.Sys() != nil {
 		raw, ok := info.Sys().(*syscall.Stat_t)
 		if ok && raw.Nlink == 0 {
-			if info.Size() > h.Offset {
-				log.Printf("deleted file has more data.  size: %d, our offset: %d", info.Size(), h.Offset)
+			if info.Size() > offset {
+				log.Printf("deleted file has more data.  size: %d, our offset: %d", info.Size(), offset)
 				return hf_Ok, nil
 			}
 			return hf_Gone, nil
 		}
 	}
-	if info.Size() < h.Offset {
+	if info.Size() < offset {
+		log.Printf("file %s is at offset %d but size is %d", h.Path, offset, info.Size())
 		return hf_Trunc, nil
 	}
 	return hf_Ok, nil
@@ -193,14 +230,13 @@ func (h *Harvester) status() (hfStatus, error) {
 
 func (h *Harvester) rewind() error {
 	_, err := h.file.Seek(0, os.SEEK_SET)
-	h.Offset = 0
 	if err == nil {
 		log.Printf("rewind %s", h.Path)
 	}
 	return err
 }
 
-func (h *Harvester) open(opt int) *os.File {
+func (h *Harvester) open(offset int64, opt int) *os.File {
 	// Special handling that "-" means to read from standard input
 	if h.Path == "-" {
 		h.file = os.Stdin
@@ -213,7 +249,7 @@ func (h *Harvester) open(opt int) *os.File {
 
 		if err != nil {
 			// retry on failure.
-			log.Printf("Failed opening %s: %s\n", h.Path, err)
+			log.Printf("Failed opening stupid file %s: %s\n", h.Path, err)
 			time.Sleep(5 * time.Second)
 		} else {
 			break
@@ -221,12 +257,15 @@ func (h *Harvester) open(opt int) *os.File {
 	}
 
 	// TODO(sissel): Only seek if the file is a file, not a pipe or socket.
-	if h.Offset > 0 {
-		h.file.Seek(h.Offset, os.SEEK_SET)
+	if offset > 0 {
+		h.file.Seek(offset, os.SEEK_SET)
+		log.Printf("reading from %d: %s", offset, h.Path)
 	} else if *from_beginning || opt&h_Rewind > 0 {
 		h.file.Seek(0, os.SEEK_SET)
+		log.Printf("reading from beginning: %s", h.Path)
 	} else {
 		h.file.Seek(0, os.SEEK_END)
+		log.Printf("reading from end: %s", h.Path)
 	}
 
 	var err error
@@ -236,39 +275,4 @@ func (h *Harvester) open(opt int) *os.File {
 	}
 
 	return h.file
-}
-
-func (h *Harvester) resume(path string) {
-	if h.truncLine == "" {
-		return
-	}
-	fi, err := os.Stat(path)
-	if err != nil {
-		log.Printf("cannot resume: %s", err.Error())
-		return
-	}
-	if fi.Size() < h.truncOffset {
-		return
-	}
-
-	f, err := os.Open(path)
-	if err != nil {
-		log.Printf("cannot resume: %s", err.Error())
-		return
-	}
-	defer f.Close()
-
-	b := make([]byte, len(h.truncLine))
-	_, err = f.ReadAt(b, h.truncOffset-int64(len(h.truncLine)))
-	if err != nil {
-		log.Printf("couldn't read that shit: %s", err.Error())
-		return
-	}
-	// log.Printf("read %d bytes at truncoffset %d", n, h.truncOffset)
-	// log.Printf("%s | %s", h.truncLine, b)
-	if h.truncLine == string(b) {
-		// log.Println("HOLY SHIT")
-		newh := Harvester{Path: path, Fields: h.Fields, out: h.out, Offset: h.truncOffset}
-		go newh.Harvest(0)
-	}
 }

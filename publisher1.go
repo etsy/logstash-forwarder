@@ -2,18 +2,12 @@ package main
 
 import (
 	"bytes"
-	"compress/zlib"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/binary"
-	"encoding/pem"
-	"io"
-	"io/ioutil"
 	"log"
 	"math/rand"
 	"net"
 	"os"
-	"strconv"
 	"time"
 )
 
@@ -27,198 +21,105 @@ func init() {
 
 var publisherId = 0
 
-// writes to the network, notifies registrar
-func Publishv1(input chan eventPage, registrar chan eventPage, config *NetworkConfig) {
-	var (
-		buffer   bytes.Buffer
-		socket   *tls.Conn
-		sequence uint32
-		err      error
-	)
-	id := publisherId
-	publisherId++
+type Publisher struct {
+	id        int           // unique publisher id
+	buffer    bytes.Buffer  // recyclable buffer for data to be sent
+	socket    *tls.Conn     // currently active connection. may be nil.
+	sequence  uint32        // incremental event id for current connection.
+	addr      string        // tcp address to connect to
+	tlsConfig tls.Config    // tls config to use for establishing secure connection
+	timeout   time.Duration // send timeout
+}
 
-	socket = connect(config, id)
+func (p *Publisher) publish(input chan eventPage, registrar chan eventPage) {
+	p.connect()
 	defer func() {
-		log.Printf("publisher %v done", id)
-		socket.Close()
+		log.Printf("publisher %v done", p.id)
+		p.socket.Close()
 	}()
 
 	for page := range input {
-		buffer.Truncate(0)
-		compressor, _ := zlib.NewWriterLevel(&buffer, 3)
-
-		for _, event := range page {
-			sequence += 1
-			writeDataFrame(event, sequence, compressor)
+		if err := page.compress(p.sequence, &p.buffer); err != nil {
+			log.Println(err)
+			//  if we hit this, we've lost log lines.  This is potentially
+			//  fatal and should alert a human.
+			continue
 		}
-		compressor.Flush()
-		compressor.Close()
+		p.sequence += uint32(len(page))
+		compressed_payload := p.buffer.Bytes()
 
-		compressed_payload := buffer.Bytes()
-
-		// Send buffer until we're successful...
-		oops := func(err error) {
-			// TODO(sissel): Track how frequently we timeout and reconnect. If we're
-			// timing out too frequently, there's really no point in timing out since
-			// basically everything is slow or down. We'll want to ratchet up the
-			// timeout value slowly until things improve, then ratchet it down once
-			// things seem healthy.
-			log.Printf("Socket error, will reconnect: %s\n", err)
-			time.Sleep(1 * time.Second)
-			socket.Close()
-			socket = connect(config, id)
+		if err := p.sendPayload(len(page), compressed_payload); err != nil {
+			input <- page
+			sleep := time.Duration(1e9 + rand.Intn(1e10))
+			log.Printf("Socket error, will reconnect in %v: %s\n", sleep, err)
+			time.Sleep(sleep)
+			p.socket.Close()
+			p.connect()
+			continue
 		}
 
-	SendPayload:
-		for {
-			// Abort if our whole request takes longer than the configured
-			// network timeout.
-			socket.SetDeadline(time.Now().Add(config.timeout))
-
-			// Set the window size to the length of this payload in events.
-			_, err = socket.Write([]byte("1W"))
+		// read ack
+		response := make([]byte, 6)
+		ackbytes := 0
+		for ackbytes != 6 {
+			n, err := p.socket.Read(response)
 			if err != nil {
-				oops(err)
+				log.Printf("Read error looking for ack: %s\n", err)
+				log.Println("page will be re-sent")
+				input <- page
+				p.socket.Close()
+				p.connect()
 				continue
+			} else {
+				ackbytes += n
 			}
-			err = binary.Write(socket, binary.BigEndian, uint32(len(page)))
-			if err != nil {
-				oops(err)
-				continue
-			}
-
-			// Write compressed frame
-			_, err = socket.Write([]byte("1C"))
-			if err != nil {
-				oops(err)
-				continue
-			}
-			err = binary.Write(socket, binary.BigEndian, uint32(len(compressed_payload)))
-			if err != nil {
-				oops(err)
-				continue
-			}
-			_, err = socket.Write(compressed_payload)
-			if err != nil {
-				oops(err)
-				continue
-			}
-
-			// read ack
-			response := make([]byte, 0, 6)
-			ackbytes := 0
-			for ackbytes != 6 {
-				n, err := socket.Read(response[len(response):cap(response)])
-				if err != nil {
-					log.Printf("Read error looking for ack: %s\n", err)
-					socket.Close()
-					socket = connect(config, id)
-					continue SendPayload // retry sending on new connection
-				} else {
-					ackbytes += n
-				}
-			}
-
-			// TODO(sissel): verify ack
-			// Success, stop trying to send the payload.
-			break
 		}
+
+		// TODO(sissel): verify ack
 
 		// Tell the registrar that we've successfully sent these events
+		log.Printf("publisher %d sent %d events to %s", p.id, len(page), p.addr)
 		registrar <- page
 	} /* for each event payload */
-} // Publish
 
-func connect(config *NetworkConfig, id int) (socket *tls.Conn) {
-	var tlsconfig tls.Config
+}
 
-	if len(config.SSLCertificate) > 0 && len(config.SSLKey) > 0 {
-		log.Printf("Loading client ssl certificate: %s and %s\n",
-			config.SSLCertificate, config.SSLKey)
-		cert, err := tls.LoadX509KeyPair(config.SSLCertificate, config.SSLKey)
-		if err != nil {
-			log.Fatalf("Failed loading client ssl certificate: %s\n", err)
-		}
-		tlsconfig.Certificates = []tls.Certificate{cert}
-	}
+func (p *Publisher) sendPayload(size int, payload []byte) error {
+	p.socket.SetDeadline(time.Now().Add(p.timeout))
 
-	if len(config.SSLCA) > 0 {
-		log.Printf("Setting trusted CA from file: %s\n", config.SSLCA)
-		tlsconfig.RootCAs = x509.NewCertPool()
+	w := &errorWriter{Writer: p.socket}
 
-		pemdata, err := ioutil.ReadFile(config.SSLCA)
-		if err != nil {
-			log.Fatalf("Failure reading CA certificate: %s\n", err)
-		}
+	// Set the window size to the length of this payload in events.
+	w.Write([]byte("1W"))
+	binary.Write(w, binary.BigEndian, uint32(size))
 
-		block, _ := pem.Decode(pemdata)
-		if block == nil {
-			log.Fatalf("Failed to decode PEM data, is %s a valid cert?\n", config.SSLCA)
-		}
-		if block.Type != "CERTIFICATE" {
-			log.Fatalf("This is not a certificate file: %s\n", config.SSLCA)
-		}
+	// Write compressed frame
+	w.Write([]byte("1C"))
+	binary.Write(w, binary.BigEndian, uint32(len(payload)))
+	w.Write(payload)
 
-		cert, err := x509.ParseCertificate(block.Bytes)
-		if err != nil {
-			log.Fatalf("Failed to parse a certificate: %s\n", config.SSLCA)
-		}
-		tlsconfig.RootCAs.AddCert(cert)
-	}
+	return w.Err()
+}
 
+func (p *Publisher) connect() {
 	for {
-		// Pick a random server from the list.
-		address := config.Servers[rand.Int()%len(config.Servers)]
-		log.Printf("Connecting publisher %v to %s\n", id, address)
-
-		tcpsocket, err := net.DialTimeout("tcp", address, config.timeout)
+		sock, err := net.DialTimeout("tcp", p.addr, p.timeout)
 		if err != nil {
-			log.Printf("Failure connecting publisher %v to %s: %s\n", id, address, err)
-			time.Sleep(1 * time.Second)
+			sleep := time.Duration(1e9 + rand.Intn(1e10))
+			log.Printf("Failure connecting publisher %v to %s: %s\n", p.id, p.addr, err)
+			log.Printf("reconnect in %v", sleep)
+			time.Sleep(sleep)
 			continue
 		}
-
-		socket = tls.Client(tcpsocket, &tlsconfig)
-		socket.SetDeadline(time.Now().Add(config.timeout))
-		err = socket.Handshake()
-		if err != nil {
-			log.Printf("Failed to tls handshake with %s %s\n", address, err)
-			time.Sleep(1 * time.Second)
-			socket.Close()
-			continue
+		p.socket = tls.Client(sock, &p.tlsConfig)
+		p.socket.SetDeadline(time.Now().Add(p.timeout))
+		if err := p.socket.Handshake(); err != nil {
+			sleep := time.Duration(1e9 + rand.Intn(1e10))
+			log.Printf("Failed to tls handshake with %s %s\n", p.addr, err)
+			time.Sleep(sleep)
+			p.socket.Close()
 		}
-
-		log.Printf("Publisher %v connected to %s\n", id, address)
-
-		// connected, let's rock and roll.
+		log.Printf("Publisher %v connected to %s\n", p.id, p.addr)
 		return
 	}
-	panic("not reached")
-}
-
-func writeDataFrame(event *FileEvent, sequence uint32, output io.Writer) {
-	//log.Printf("event: %s\n", *event.Text)
-	// header, "1D"
-	output.Write([]byte("1D"))
-	// sequence number
-	binary.Write(output, binary.BigEndian, uint32(sequence))
-	// 'pair' count
-	binary.Write(output, binary.BigEndian, uint32(len(event.Fields)+4))
-
-	writeKV("file", *event.Source, output)
-	writeKV("host", hostname, output)
-	writeKV("offset", strconv.FormatInt(event.Offset, 10), output)
-	writeKV("line", *event.Text, output)
-	for k, v := range event.Fields {
-		writeKV(k, v, output)
-	}
-}
-
-func writeKV(key string, value string, output io.Writer) {
-	//log.Printf("kv: %d/%s %d/%s\n", len(key), key, len(value), value)
-	binary.Write(output, binary.BigEndian, uint32(len(key)))
-	output.Write([]byte(key))
-	binary.Write(output, binary.BigEndian, uint32(len(value)))
-	output.Write([]byte(value))
 }

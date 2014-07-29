@@ -31,9 +31,8 @@ func Registrar(input chan eventPage) {
 		}
 
 		p := page.progress()
-		total, bad := page.counts()
 
-		log.Printf("registrar received %d events. %v %v\n", len(page), total, bad)
+		log.Printf("registrar received %d events. %s", len(page), page.countString())
 
 		if err := p.writeFile(*history_path); err != nil {
 			log.Printf("unable to write history to file: %s", err.Error())

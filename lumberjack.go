@@ -9,8 +9,11 @@
 package main
 
 import (
+	_ "expvar"
 	"flag"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"runtime"
@@ -30,6 +33,11 @@ var (
 	history_path    = flag.String("progress-file", ".lumberjack", "path of file used to store progress data")
 	temp_dir        = flag.String("temp-dir", "/tmp", "directory for creating temp files")
 	num_threads     = flag.Int("threads", 1, "Number of OS threads to use")
+	cmd_port        = flag.Int("cmd-port", 42586, "tcp command port number")
+	http_port       = flag.String("http", "", "http port for debug info. No http server is run if this is left off. E.g.: http=:6060")
+
+	event_chan chan *FileEvent
+	registry   *hregistry
 )
 
 func awaitSignals() {
@@ -46,10 +54,45 @@ func setupLogging() {
 	}
 }
 
+func shutdown(v interface{}) {
+	log.Fatal(v)
+}
+
+func startPublishers(conf *NetworkConfig, in, out chan eventPage) error {
+	tlsConfig, err := conf.TLS()
+	if err != nil {
+		return fmt.Errorf("unable to start publishers: %v", err)
+	}
+
+	for i, server := range conf.Servers {
+		p := &Publisher{
+			id:        i,
+			sequence:  1,
+			addr:      server,
+			tlsConfig: *tlsConfig,
+			timeout:   conf.timeout,
+		}
+		go p.publish(in, out)
+	}
+	return nil
+}
+
+func startHttp() {
+	if *http_port != "" {
+		log.Printf("starting http debug port on %s", *http_port)
+		if err := http.ListenAndServe(*http_port, nil); err != nil {
+			log.Printf("unable to open http port: %v", err)
+		}
+	} else {
+		log.Println("no http port specified")
+	}
+}
+
 func main() {
 	flag.Parse()
 	runtime.GOMAXPROCS(*num_threads)
 	setupLogging()
+	go cmdListener()
 	log.Println("lumberjack starting")
 
 	startCPUProfile()
@@ -58,9 +101,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err.Error())
 	}
+	registry = newRegistry(config)
 
-	event_chan := make(chan *FileEvent, 16)
-	publisher_chan := make(chan eventPage, 1)
+	event_chan = make(chan *FileEvent, 16)
+	publisher_chan := make(chan eventPage, len(config.Network.Servers))
 	registrar_chan := make(chan eventPage, 1)
 
 	if len(config.Files) == 0 {
@@ -76,16 +120,13 @@ func main() {
 	// Harvesters dump events into the spooler.
 	go Spool(event_chan, publisher_chan, *spool_size, *idle_timeout)
 
-	if *num_workers <= 0 {
-		*num_workers = default_workers
-	}
-	for i := 0; i < *num_workers; i++ {
-		log.Printf("adding publish worker")
-		go Publishv1(publisher_chan, registrar_chan, &config.Network)
+	if err := startPublishers(&config.Network, publisher_chan, registrar_chan); err != nil {
+		shutdown(err)
 	}
 
 	// registrar records last acknowledged positions in all files.
 	go Registrar(registrar_chan)
+	go startHttp()
 	awaitSignals()
 }
 
