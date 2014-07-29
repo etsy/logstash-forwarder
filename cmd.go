@@ -23,6 +23,7 @@ var replayCmd = cmd{
 		var offset int64
 		flags := flag.NewFlagSet("replay", flag.ContinueOnError)
 		flags.Int64Var(&offset, "offset", 0, "offset to read file from")
+
 		if err := flags.Parse(args); err != nil {
 			fmt.Fprintf(w, "argument error: %v")
 			fmt.Fprintf(w, "usage: replay [filename] [offset]")
@@ -30,7 +31,7 @@ var replayCmd = cmd{
 		}
 		args = flags.Args()
 		if len(args) == 0 {
-			fmt.Fprintf(w, "usage: replay [filename] [--offset=N] [field1=value1 field2=value2 ... fieldN=valueN]")
+			fmt.Fprintf(w, "usage: replay [filename] [--offset=N] [field1=value1 field2=value2 ... fieldN=valueN]\n")
 			return
 		}
 		for i, _ := range args {
@@ -47,7 +48,7 @@ var replayCmd = cmd{
 				fields[parts[0]] = strings.TrimSpace(parts[1])
 			}
 		}
-		h := &Harvester{Path: args[0], Fields: fields, out: event_chan}
+		h := &Harvester{Path: args[0], Fields: fields, out: event_chan, join: nil}
 		fmt.Fprintln(w, "ok")
 		go h.Harvest(offset, h_Rewind)
 	},

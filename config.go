@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"regexp"
 	"time"
 )
 
@@ -67,6 +68,85 @@ func (n *NetworkConfig) TLS() (*tls.Config, error) {
 type FileConfig struct {
 	Paths  []string          `json:paths`
 	Fields map[string]string `json:fields`
+	Join   *joinspec         `json:join`
+}
+
+type joinspec struct {
+	match *regexp.Regexp
+	not   *regexp.Regexp
+	with  string
+}
+
+func (j *joinspec) UnmarshalJSON(b []byte) error {
+	type t struct {
+		Match string `json:"match,omitempty"`
+		Not   string `json:"not,omitempty"`
+		With  string `json:"with"`
+	}
+
+	var v t
+	if err := json.Unmarshal(b, &v); err != nil {
+		return fmt.Errorf("cannot unmarshal joinspec: %v", err)
+	}
+
+	if v.Match != "" && v.Not != "" {
+		return fmt.Errorf(`error in joinspec: "not" and "match" are mutually exclusive.`)
+	}
+
+	if v.Match != "" {
+		if re, err := regexp.Compile(v.Match); err != nil {
+			return fmt.Errorf("cannot unmarshal joinspec: illegal match pattern: %v", err)
+		} else {
+			j.match = re
+		}
+	}
+
+	if v.Not != "" {
+		if re, err := regexp.Compile(v.Not); err != nil {
+			return fmt.Errorf("cannot unmarshal joinspec: illegal not pattern: %v", err)
+		} else {
+			j.not = re
+		}
+	}
+
+	if v.With != "previous" {
+		return fmt.Errorf("cannot unmarshal joinspec: illegal with specifier: %v", v.With)
+	}
+
+	j.with = v.With
+	return nil
+}
+
+type shittyjoinspec struct {
+	Before []regexp.Regexp
+}
+
+func (j *shittyjoinspec) UnmarshalJSON(b []byte) error {
+	type t struct {
+		Before []string `json:before`
+	}
+	*j = shittyjoinspec{Before: make([]regexp.Regexp, 0, 4)}
+	var v t
+	if err := json.Unmarshal(b, &v); err != nil {
+		return fmt.Errorf("cannot unmarshal shittyjoinspec: %v", err)
+	}
+	for _, s := range v.Before {
+		r, err := regexp.Compile(s)
+		if err != nil {
+			return fmt.Errorf("bad pattern in shittyjoinspec: %v", err)
+		}
+		j.Before = append(j.Before, *r)
+	}
+	return nil
+}
+
+func (j *shittyjoinspec) before(line string) bool {
+	for _, p := range j.Before {
+		if p.MatchString(line) {
+			return true
+		}
+	}
+	return false
 }
 
 func LoadConfig(path string) (*Config, error) {

@@ -12,7 +12,12 @@ func Prospect(fileconfig FileConfig, output chan *FileEvent) {
 	// Handle any "-" (stdin) paths
 	for i, path := range fileconfig.Paths {
 		if path == "-" {
-			harvester := Harvester{Path: path, Fields: fileconfig.Fields, out: output}
+			harvester := Harvester{
+				Path:   path,
+				Fields: fileconfig.Fields,
+				join:   fileconfig.Join,
+				out:    output,
+			}
 			go harvester.Harvest(0, 0)
 
 			// Remove it from the file list
@@ -26,7 +31,7 @@ func Prospect(fileconfig FileConfig, output chan *FileEvent) {
 
 	for {
 		for _, path := range fileconfig.Paths {
-			prospector_scan(path, fileconfig.Fields, fileinfo, output)
+			prospector_scan(path, &fileconfig, fileinfo, output)
 		}
 
 		// Defer next scan for a bit.
@@ -63,6 +68,7 @@ func resume_tracking(fileconfig FileConfig, fileinfo map[string]os.FileInfo, out
 					harvester := Harvester{
 						Path:   path,
 						Fields: fileconfig.Fields,
+						join:   fileconfig.Join,
 						out:    output,
 					}
 					go harvester.Harvest(state.Offset, 0)
@@ -73,7 +79,7 @@ func resume_tracking(fileconfig FileConfig, fileinfo map[string]os.FileInfo, out
 	}
 }
 
-func prospector_scan(path string, fields map[string]string,
+func prospector_scan(path string, conf *FileConfig,
 	fileinfo map[string]os.FileInfo,
 	output chan *FileEvent) {
 
@@ -120,12 +126,22 @@ func prospector_scan(path string, fields map[string]string,
 				// Check to see if this file was simply renamed (known inode+dev)
 			} else {
 				log.Printf("harvest new file: %s\n", file)
-				harvester := Harvester{Path: file, Fields: fields, out: output}
+				harvester := Harvester{
+					Path:   file,
+					Fields: conf.Fields,
+					join:   conf.Join,
+					out:    output,
+				}
 				go harvester.Harvest(0, 0)
 			}
 		} else if !is_fileinfo_same(lastinfo, info) {
 			log.Printf("harvest rotated file: %s\n", file)
-			harvester := Harvester{Path: file, Fields: fields, out: output}
+			harvester := Harvester{
+				Path:   file,
+				Fields: conf.Fields,
+				join:   conf.Join,
+				out:    output,
+			}
 			go harvester.Harvest(0, h_Rewind)
 		}
 	} // for each file matched by the glob
