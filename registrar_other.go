@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 )
@@ -38,7 +39,8 @@ func (p *progress) writeFile(path string) error {
 
 	var existing progress
 	if err := existing.load(path); err != nil {
-		return fmt.Errorf("failed to read existing state at path %s: %s", path, err.Error())
+		log.Printf("failed to read existing state at path %s: %s", path, err.Error())
+		existing = make(progress, 8)
 	}
 
 	for name, fs := range *p {
