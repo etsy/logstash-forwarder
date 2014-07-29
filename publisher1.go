@@ -38,6 +38,7 @@ func (p *Publisher) publish(input chan eventPage, registrar chan eventPage) {
 		p.socket.Close()
 	}()
 
+SENDING:
 	for page := range input {
 		if err := page.compress(p.sequence, &p.buffer); err != nil {
 			log.Println(err)
@@ -69,7 +70,7 @@ func (p *Publisher) publish(input chan eventPage, registrar chan eventPage) {
 				input <- page
 				p.socket.Close()
 				p.connect()
-				continue
+				continue SENDING
 			} else {
 				ackbytes += n
 			}
