@@ -64,7 +64,7 @@ func (p *Publisher) publish(input chan eventPage, registrar chan eventPage) {
 		for ackbytes != 6 {
 			n, err := p.socket.Read(response)
 			if err != nil {
-				log.Printf("Read error looking for ack: %s\n", err)
+				log.Printf("Read error after %d bytes looking for ack: %s\n", n, err)
 				log.Println("page will be re-sent")
 				input <- page
 				p.socket.Close()
