@@ -1,4 +1,4 @@
-VERSION=0.3.2
+VERSION=0.3.4
 
 # By default, all dependencies (zeromq, etc) will be downloaded and installed
 # locally. You can change this if you are deploying your own.
@@ -72,6 +72,7 @@ build/bin/lumberjack.sh: lumberjack.sh | build/bin
 	install -m 755 $^ $@
 
 build/bin/lumberjack: | build/bin go-check
+	go get code.google.com/p/go.exp/inotify
 	PKG_CONFIG_PATH=$$PWD/build/lib/pkgconfig \
 		go build -ldflags '-r $$ORIGIN/../lib' -v -o $@
 build/bin/keygen:  | build/bin go-check
