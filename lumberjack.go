@@ -28,7 +28,8 @@ var (
 	num_workers     = flag.Int("num-workers", default_workers, "Number of concurrent publish workers. Defaults to 2*CPU")
 	idle_timeout    = flag.Duration("idle-flush-time", 5*time.Second, "Maximum time to wait for a full spool before flushing anyway")
 	config_file     = flag.String("config", "", "The config file to load")
-	use_syslog      = flag.Bool("log-to-syslog", false, "Log to syslog instead of stdout")
+	log_file        = flag.String("log-file", "", "Log file output")
+	use_syslog      = flag.Bool("log-to-syslog", false, "Log to syslog instead of stdout. This option overrides the --log-file option.")
 	from_beginning  = flag.Bool("from-beginning", false, "Read new files from the beginning, instead of the end")
 	history_path    = flag.String("progress-file", ".lumberjack", "path of file used to store progress data")
 	temp_dir        = flag.String("temp-dir", "/tmp", "directory for creating temp files")
@@ -36,8 +37,9 @@ var (
 	cmd_port        = flag.Int("cmd-port", 42586, "tcp command port number")
 	http_port       = flag.String("http", "", "http port for debug info. No http server is run if this is left off. E.g.: http=:6060")
 
-	event_chan chan *FileEvent
-	registry   *hregistry
+	event_chan       chan *FileEvent
+	registry         *hregistry
+	shutdownHandlers []func()
 )
 
 func awaitSignals() {
@@ -51,10 +53,28 @@ func setupLogging() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 	if *use_syslog {
 		configureSyslog()
+	} else if *log_file != "" {
+		f, err := os.OpenFile(*log_file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Printf("unable to open logfile destination: %v", err)
+		} else {
+			log.SetOutput(f)
+			onShutdown(func() { f.Close() })
+		}
 	}
 }
 
+func onShutdown(fn func()) {
+	if shutdownHandlers == nil {
+		shutdownHandlers = make([]func(), 0, 8)
+	}
+	shutdownHandlers = append(shutdownHandlers, fn)
+}
+
 func shutdown(v interface{}) {
+	for _, fn := range shutdownHandlers {
+		fn()
+	}
 	log.Fatal(v)
 }
 
