@@ -42,6 +42,7 @@ type NetworkConfig struct {
 
 func (n *NetworkConfig) TLS() (*tls.Config, error) {
 	var c tls.Config
+	c.InsecureSkipVerify = true
 	if n.SSLCertificate != "" && n.SSLKey != "" {
 		cert, err := tls.LoadX509KeyPair(n.SSLCertificate, n.SSLKey)
 		if err != nil {
