@@ -34,7 +34,7 @@ const (
 type Harvester struct {
 	Path   string
 	Fields map[string]string
-	join   *joinspec
+	join   joinspec
 
 	moved      bool // this is set when the file has been moved by logrotate
 	file       *os.File
@@ -143,17 +143,19 @@ func (h *Harvester) emit(text string, offset int64) {
 		h.out <- h.event(text, offset)
 		return
 	}
-	if h.join.with == "previous" {
-		if h.join.match != nil {
-			if h.join.match.MatchString(text) {
-				h.lastLine += text
-				return
+	for _, v := range h.join {
+		if v.with == "previous" {
+			if v.match != nil {
+				if v.match.MatchString(text) {
+					h.lastLine += text
+					return
+				}
 			}
-		}
-		if h.join.not != nil {
-			if !h.join.not.MatchString(text) {
-				h.lastLine += text
-				return
+			if v.not != nil {
+				if !v.not.MatchString(text) {
+					h.lastLine += text
+					return
+				}
 			}
 		}
 	}

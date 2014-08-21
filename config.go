@@ -68,17 +68,19 @@ func (n *NetworkConfig) TLS() (*tls.Config, error) {
 type FileConfig struct {
 	Paths  []string          `json:paths`
 	Fields map[string]string `json:fields`
-	Join   *joinspec         `json:join`
+	Join   joinspec          `json:join`
 }
 
-type joinspec struct {
+type joinspec []joinspecElem
+
+type joinspecElem struct {
 	match *regexp.Regexp
 	not   *regexp.Regexp
 	with  string
 }
 
 func (j *joinspec) UnmarshalJSON(b []byte) error {
-	type t struct {
+	type t []struct {
 		Match string `json:"match,omitempty"`
 		Not   string `json:"not,omitempty"`
 		With  string `json:"with"`
@@ -89,31 +91,37 @@ func (j *joinspec) UnmarshalJSON(b []byte) error {
 		return fmt.Errorf("cannot unmarshal joinspec: %v", err)
 	}
 
-	if v.Match != "" && v.Not != "" {
-		return fmt.Errorf(`error in joinspec: "not" and "match" are mutually exclusive.`)
-	}
+	tmp := make(joinspec, len(v))
 
-	if v.Match != "" {
-		if re, err := regexp.Compile(v.Match); err != nil {
-			return fmt.Errorf("cannot unmarshal joinspec: illegal match pattern: %v", err)
-		} else {
-			j.match = re
+	for i, _ := range v {
+		if v[i].Match != "" && v[i].Not != "" {
+			return fmt.Errorf(`error in joinspec: "not" and "match" are mutually exclusive.`)
 		}
-	}
 
-	if v.Not != "" {
-		if re, err := regexp.Compile(v.Not); err != nil {
-			return fmt.Errorf("cannot unmarshal joinspec: illegal not pattern: %v", err)
-		} else {
-			j.not = re
+		if v[i].Match != "" {
+			if re, err := regexp.Compile(v[i].Match); err != nil {
+				return fmt.Errorf("cannot unmarshal joinspec: illegal match pattern: %v", err)
+			} else {
+				tmp[i].match = re
+			}
 		}
-	}
 
-	if v.With != "previous" {
-		return fmt.Errorf("cannot unmarshal joinspec: illegal with specifier: %v", v.With)
-	}
+		if v[i].Not != "" {
+			if re, err := regexp.Compile(v[i].Not); err != nil {
+				return fmt.Errorf("cannot unmarshal joinspec: illegal not pattern: %v", err)
+			} else {
+				tmp[i].not = re
+			}
+		}
 
-	j.with = v.With
+		if v[i].With != "previous" {
+			return fmt.Errorf("cannot unmarshal joinspec: illegal with specifier: %v", v[i].With)
+		}
+
+		tmp[i].with = v[i].With
+	}
+	*j = tmp
+
 	return nil
 }
 
