@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/binary"
+	"fmt"
 	"log"
 	"math/rand"
 	"net"
@@ -86,7 +87,9 @@ SENDING:
 }
 
 func (p *Publisher) sendPayload(size int, payload []byte) error {
-	p.socket.SetDeadline(time.Now().Add(p.timeout))
+	if err := p.socket.SetDeadline(time.Now().Add(p.timeout)); err != nil {
+		return fmt.Errorf("unable to set deadline in sendPayload: %v", err)
+	}
 
 	w := &errorWriter{Writer: p.socket}
 
@@ -113,7 +116,9 @@ func (p *Publisher) connect() {
 			continue
 		}
 		p.socket = tls.Client(sock, &p.tlsConfig)
-		p.socket.SetDeadline(time.Now().Add(p.timeout))
+		if err := p.socket.SetDeadline(time.Now().Add(p.timeout)); err != nil {
+			log.Printf("unable to set deadline in connect: %v\n", err)
+		}
 		if err := p.socket.Handshake(); err != nil {
 			sleep := time.Duration(1e9 + rand.Intn(1e10))
 			log.Printf("Failed to tls handshake with %s %s\n", p.addr, err)
