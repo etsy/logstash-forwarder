@@ -1,4 +1,4 @@
-VERSION=0.3.6
+VERSION=0.3.7
 
 # By default, all dependencies (zeromq, etc) will be downloaded and installed
 # locally. You can change this if you are deploying your own.
