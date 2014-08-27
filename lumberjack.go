@@ -18,6 +18,7 @@ import (
 	"os/signal"
 	"runtime"
 	"runtime/pprof"
+	"syscall"
 	"time"
 )
 
@@ -28,7 +29,9 @@ var (
 	num_workers     = flag.Int("num-workers", default_workers, "Number of concurrent publish workers. Defaults to 2*CPU")
 	idle_timeout    = flag.Duration("idle-flush-time", 5*time.Second, "Maximum time to wait for a full spool before flushing anyway")
 	config_file     = flag.String("config", "", "The config file to load")
-	use_syslog      = flag.Bool("log-to-syslog", false, "Log to syslog instead of stdout")
+	log_file_path   = flag.String("log-file", "", "Log file output")
+	pid_file_path   = flag.String("pid-file", "lumberjack.pid", "destination to which a pidfile will be written")
+	use_syslog      = flag.Bool("log-to-syslog", false, "Log to syslog instead of stdout. This option overrides the --log-file option.")
 	from_beginning  = flag.Bool("from-beginning", false, "Read new files from the beginning, instead of the end")
 	history_path    = flag.String("progress-file", ".lumberjack", "path of file used to store progress data")
 	temp_dir        = flag.String("temp-dir", "/tmp", "directory for creating temp files")
@@ -36,25 +39,92 @@ var (
 	cmd_port        = flag.Int("cmd-port", 42586, "tcp command port number")
 	http_port       = flag.String("http", "", "http port for debug info. No http server is run if this is left off. E.g.: http=:6060")
 
-	event_chan chan *FileEvent
-	registry   *hregistry
+	event_chan       chan *FileEvent
+	registry         *hregistry
+	shutdownHandlers []func()
+	log_file_handle  *os.File
 )
 
+// creates a file and writes the current process's pid into that file.  The
+// file name is specified on the command line.
+func writePid() {
+	if *pid_file_path == "" {
+		return
+	}
+	f, err := os.OpenFile(*pid_file_path, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0644)
+	if err != nil {
+		log.Printf("ERROR unable to open pidfile: %v", err)
+		return
+	}
+	fmt.Fprintln(f, os.Getpid())
+	onShutdown(rmPidfile)
+}
+
+// removes pidfile from disk
+func rmPidfile() {
+	if *pid_file_path == "" {
+		return
+	}
+	os.Remove(*pid_file_path)
+}
+
 func awaitSignals() {
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, os.Kill)
-	<-c
-	log.Println("lumberjack shutting down")
+	die, hup := make(chan os.Signal, 1), make(chan os.Signal, 1)
+	signal.Notify(die, os.Interrupt, os.Kill)
+	signal.Notify(hup, syscall.SIGHUP)
+	for {
+		select {
+		case <-die:
+			log.Println("lumberjack shutting down")
+			shutdown(nil)
+		case <-hup:
+			refreshLogfileHandle()
+		}
+	}
+}
+
+func refreshLogfileHandle() {
+	if *log_file_path == "" {
+		return
+	}
+
+	f, err := os.OpenFile(*log_file_path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Printf("unable to open logfile destination: %v", err)
+	} else {
+		log.SetOutput(f)
+	}
+
+	if log_file_handle != nil {
+		log_file_handle.Close()
+	}
+
+	log_file_handle = f
 }
 
 func setupLogging() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 	if *use_syslog {
 		configureSyslog()
+	} else if *log_file_path != "" {
+		refreshLogfileHandle()
 	}
 }
 
+// adds a shutdown handler to the list of shutdown handlers.  These handlers
+// are called when we exit lumberjack with a call to shutdown, but not with
+// log.Fatal, so... don't use log.Fatal.
+func onShutdown(fn func()) {
+	if shutdownHandlers == nil {
+		shutdownHandlers = make([]func(), 0, 8)
+	}
+	shutdownHandlers = append(shutdownHandlers, fn)
+}
+
 func shutdown(v interface{}) {
+	for _, fn := range shutdownHandlers {
+		fn()
+	}
 	log.Fatal(v)
 }
 
@@ -92,6 +162,7 @@ func main() {
 	flag.Parse()
 	runtime.GOMAXPROCS(*num_threads)
 	setupLogging()
+	writePid()
 	go cmdListener()
 	log.Println("lumberjack starting")
 
