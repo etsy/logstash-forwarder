@@ -34,12 +34,15 @@ const (
 type Harvester struct {
 	Path   string
 	Fields map[string]string
+	join   joinspec
 
-	moved    bool // this is set when the file has been moved by logrotate
-	file     *os.File
-	fi       os.FileInfo
-	lastRead time.Time
-	out      chan *FileEvent
+	moved      bool // this is set when the file has been moved by logrotate
+	file       *os.File
+	fi         os.FileInfo
+	lastRead   time.Time
+	out        chan *FileEvent
+	lastLine   string
+	lastOffset int64
 
 	nextPath string
 }
@@ -136,7 +139,32 @@ func (h *Harvester) event(text string, offset int64) *FileEvent {
 }
 
 func (h *Harvester) emit(text string, offset int64) {
-	h.out <- h.event(text, offset)
+	if h.join == nil {
+		h.out <- h.event(text, offset)
+		return
+	}
+	for _, v := range h.join {
+		if v.with == "previous" {
+			if v.match != nil {
+				if v.match.MatchString(text) {
+					h.lastLine += text
+					return
+				}
+			}
+			if v.not != nil {
+				if !v.not.MatchString(text) {
+					h.lastLine += text
+					return
+				}
+			}
+		}
+	}
+
+	if h.lastLine != "" {
+		h.out <- h.event(h.lastLine, h.lastOffset)
+	}
+	h.lastLine = text
+	h.lastOffset = offset
 }
 
 func (h *Harvester) fileOffset() (int64, error) {

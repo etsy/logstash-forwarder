@@ -170,6 +170,8 @@ func main() {
 
 	config, err := LoadConfig(*config_file)
 	if err != nil {
+		fmt.Println("one")
+		fmt.Println(err)
 		log.Fatal(err.Error())
 	}
 	registry = newRegistry(config)
