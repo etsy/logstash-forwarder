@@ -41,7 +41,7 @@ type Harvester struct {
 	fi         os.FileInfo
 	lastRead   time.Time
 	out        chan *FileEvent
-	lastLine   string
+	lastLine   []byte
 	lastOffset int64
 
 	nextPath string
@@ -75,7 +75,6 @@ func (h *Harvester) readlines(timeout time.Duration) {
 	defer registry.unregister(h)
 
 	r := bufio.NewReader(h.file)
-	var last string
 
 	offset, err := h.fileOffset()
 	if err != nil {
@@ -85,19 +84,16 @@ func (h *Harvester) readlines(timeout time.Duration) {
 
 	for {
 		h.lastRead = time.Now()
-		line, err := r.ReadString('\n')
-		if line != "" {
-			last = line
-		}
+		line, err := r.ReadBytes('\n')
 		switch err {
 		case io.EOF:
-			if line != "" {
+			if len(line) > 0 {
 				log.Printf("harvester hit EOF in %s with line", h.Path)
 				h.emit(line, offset)
 				time.Sleep(1 * time.Second)
 				break
 			}
-			if rewound, err := h.autoRewind(offset, last); err != nil {
+			if rewound, err := h.autoRewind(offset, line); err != nil {
 				log.Printf("harvester for file %s stopping: %v", h.Path, err)
 				return
 			} else if rewound {
@@ -138,32 +134,32 @@ func (h *Harvester) event(text string, offset int64) *FileEvent {
 	return e
 }
 
-func (h *Harvester) emit(text string, offset int64) {
+func (h *Harvester) emit(line []byte, offset int64) {
 	if h.join == nil {
-		h.out <- h.event(text, offset)
+		h.out <- h.event(string(line[:]), offset)
 		return
 	}
 	for _, v := range h.join {
 		if v.with == "previous" {
 			if v.match != nil {
-				if v.match.MatchString(text) {
-					h.lastLine += text
+				if v.match.Match(line) {
+					h.lastLine = append(h.lastLine, line...)
 					return
 				}
 			}
 			if v.not != nil {
-				if !v.not.MatchString(text) {
-					h.lastLine += text
+				if !v.not.Match(line) {
+					h.lastLine = append(h.lastLine, line...)
 					return
 				}
 			}
 		}
 	}
 
-	if h.lastLine != "" {
-		h.out <- h.event(h.lastLine, h.lastOffset)
+	if len(h.lastLine) > 0 {
+		h.out <- h.event(string(h.lastLine[:]), h.lastOffset)
 	}
-	h.lastLine = text
+	h.lastLine = line
 	h.lastOffset = offset
 }
 
@@ -189,7 +185,7 @@ func (h *Harvester) Harvest(offset int64, opt int) {
 	h.readlines(24 * time.Hour)
 }
 
-func (h *Harvester) resume(offset int64, line string) {
+func (h *Harvester) resume(offset int64, line []byte) {
 	defer log.Printf("harvester done reading file %s", h.Path)
 	log.Printf("trying to resume %s at offset %d", h.Path, offset)
 	if h.Path == "-" {
@@ -200,20 +196,19 @@ func (h *Harvester) resume(offset int64, line string) {
 	h.open(offset, 0)
 	defer h.file.Close()
 
-	b := make([]byte, len(line))
-	_, err := h.file.ReadAt(b, offset-int64(len(line)))
+	_, err := h.file.ReadAt(line, offset-int64(len(line)))
 	if err != nil {
 		log.Printf("couldn't read resume line: %v", err)
 		return
 	}
-	if line == string(b) {
+	if len(line) == 0 {
 		h.readlines(24 * time.Hour)
 	}
 }
 
 // checks to see if the file has been truncated, and if so, rewinds the file
 // handle.
-func (h *Harvester) autoRewind(offset int64, line string) (bool, error) {
+func (h *Harvester) autoRewind(offset int64, line []byte) (bool, error) {
 	s, err := h.status(offset)
 	switch s {
 	case hf_Err:
