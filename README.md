@@ -35,8 +35,8 @@ enhancements over the upstream version:
 * Better log rotation handling. Lumberjack should catch some edge cases with
   copytruncate and other log rotation schemes. In order to support this, we are
   using the inotify library which MAY have broken support for non-Linux systems.
-* Multiple threads and workers. In order to gain better concurrency, Lumberjack
-  now uses multiple threads and workers.
+* Multiple threads. In order to gain better concurrency, Lumberjack now uses
+  multiple threads.
 * Logfile output and HUP support. You can now log to a dedicated file, rather
   than stdout or syslog. Sending Lumberjack a HUP causes it to close and re-open
   its own log file.
@@ -60,12 +60,10 @@ The new options are:
 
 * `-cmd-port`: Default 42586. The management port number.
 * `-log-file`: Log file name.
-* `-num-workers`: Default 2xCPU. If this becomes overwhelming, reduce this to a
-  smaller number, eg 5 or 10.
 * `-pid-file`: Default lumberjack.pid. PID file name.
 * `-temp-dir`: Temp dir to store files. This needs to be on the same filesystem
   as your `-progress-file`.
-* `-threads`: Default 1. The number of OS threads to run.
+* `-threads`: Default 2xCPU. The number of OS threads to run.
 * `-http`: A port to listen on to expose the internal state of the process,
   including memory states and the position of files which are being followed.
 
@@ -73,7 +71,7 @@ Example:
 ```
 /opt/lumberjack/bin/lumberjack -config /etc/lumberjack.conf \
         -spool-size 500 \
-        -from-beginning=true -threads 8 -num-workers 8 \
+        -from-beginning=true -threads 8 \
         -progress-file /var/run/.lumberjack -pid-file /var/run/lumberjack.pid \
         -log-file /var/log/lumberjack.log -temp-dir /var/run
 ```
