@@ -9,7 +9,9 @@ enhancements over the upstream version:
 
 * Establish multiple concurrent connections to upstream servers. If you specify
   more than one Logstash server, Lumberjack will connect to all of them and
-  round-robin sends to each server.
+  distribute where log lines are sent. If one server becomes busy and responds
+  slowly, that worker will block while others continue to send data to other
+  servers.
 * Exponential backoff on transport failure. If connectivity to the Logstash
   server is lost, Lumberjack will impose an exponential backoff between
   reconnection attempts, up to 10s.
