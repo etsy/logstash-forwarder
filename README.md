@@ -2,6 +2,92 @@
 
 o/~ I'm a lumberjack and I'm ok! I sleep when idle, then I ship logs all day! I parse your logs, I eat the JVM agent for lunch! o/~
 
+## Changes from upstream version
+
+This is a fork of Lumberjack (aka Logstash-Forwarder). It has a number of
+enhancements over the upstream version:
+
+* Establish multiple concurrent connections to upstream servers. If you specify
+  more than one Logstash server, Lumberjack will connect to all of them and
+  round-robin sends to each server.
+* Exponential backoff on transport failure. If connectivity to the Logstash
+  server is lost, Lumberjack will impose an exponential backoff between
+  reconnection attempts, up to 10s.
+* Multi-line support. Lumberjack now allows you to do multi-line joins before
+  sending your logs to Logstash. This example looks for lines which don't start
+  with a string that looks like a date, and joins them to the previous line:
+
+```
+  {
+    "paths": [ "/var/log/your-multiline-log.log" ],
+    "fields": { "type": "your_log" },
+    "join": [
+      {
+        "not": "^\\d{4}-\\d{2}-\\d{2}",
+        "with": "previous"
+      }
+    ]
+  }
+```
+
+* Better log rotation handling. Lumberjack should catch some edge cases with
+  copytruncate and other log rotation schemes. In order to support this, we are
+  using the inotify library which MAY have broken support for non-Linux systems.
+* Multiple threads and workers. In order to gain better concurrency, Lumberjack
+  now uses multiple threads and workers.
+* Logfile output and HUP support. You can now log to a dedicated file, rather
+  than stdout or syslog. Sending Lumberjack a HUP causes it to close and re-open
+  its file handles.
+* Management port and replay functionality. Lumberjack listens on a TCP port
+  (default: 42586) and allows you to re-read log files and send them to
+  Logstash.
+* State file handling. A few cases which caused the state file to get
+  overwritten or not written to correctly have been fixed.
+* An HTTP port which exposes expvar (http://golang.org/pkg/expvar/) data on
+  memory use, and the state of files which are currently being followed.
+
+### New requirements
+
+In order to build and run Lumberjack you need Go v1.3.
+This build has also only been tested on Linux. It may work on OSX but dependence
+on `inotify` may prevent it running on other operating systems.
+
+### Running Lumberjack with new options
+
+The new options are:
+
+* `-cmd-port`: Default 42586. The management port number.
+* `-log-file`: Log file name.
+* `-num-workers`: Default 2xCPU. If this becomes overwhelming, reduce this to a
+  smaller number, eg 5 or 10.
+* `-pid-file`: Default lumberjack.pid. PID file name.
+* `-temp-dir`: Temp dir to store files. This needs to be on the same filesystem
+  as your `-progress-file`.
+* `-threads`: Default 1. The number of OS threads to run.
+* `-http`: A port to listen on to expose the internal state of the process,
+  including memory states and the position of files which are being followed.
+
+Example:
+```
+/opt/lumberjack/bin/lumberjack -config /etc/lumberjack.conf \
+        -spool-size 500 \
+        -from-beginning=true -threads 8 -num-workers 8 \
+        -progress-file /var/run/.lumberjack -pid-file /var/run/lumberjack.pid \
+        -log-file /var/log/lumberjack.log -temp-dir /var/run
+```
+
+### Replaying existing log files
+
+```
+nc localhost 42586
+replay
+usage: replay [filename] [--offset=N] [field1=value1 field2=value2 ... fieldN=valueN]
+replay /path/to/file.log type=awesome_log
+```
+
+No further output is provided here, you can look at the output log to see
+Lumberjack tailing your file.
+
 ## Questions and support
 
 If you have questions and cannot find answers, please join the #logstash irc
