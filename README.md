@@ -88,6 +88,114 @@ replay /path/to/file.log type=awesome_log
 No further output is provided here, you can look at the output log to see
 Lumberjack tailing your file.
 
+### Getting expvar data
+
+Start Lumberjack with the `-http` option, with a port number. Assuming the port
+number is 9999, run the following (output formatted for clarity):
+
+```
+$ curl localhost:9999/debug/vars
+
+{
+    "cmdline":
+    ["/opt/lumberjack/bin/lumberjack","--config","/etc/lumberjack_random.conf","--http",":9999","--cmd-port","42587"],
+    "memstats":
+    {
+        "Alloc":890760,
+        "TotalAlloc":7938976,
+        "Sys":8919288,
+        "Lookups":497,
+        "Mallocs":25199,
+        "Frees":22621,
+        "HeapAlloc":890760,
+        "HeapSys":5242880,
+        "HeapIdle":3997696,
+        "HeapInuse":1245184,
+        "HeapReleased":3284992,
+        "HeapObjects":2578,
+        "StackInuse":155648,
+        "StackSys":524288,
+        "MSpanInuse":14336,
+        "MSpanSys":32768,
+        "MCacheInuse":2200,
+        "MCacheSys":16384,
+        "BuckHashSys":1443904,
+        "GCSys":1380352,
+        "OtherSys":278712,
+        "NextGC":1515312,
+        "LastGC":1412115488192038181,
+        "PauseTotalNs":5269967,
+        "PauseNs":[176775,128580,351280,284971,552778,330809,717339,711930,655566,910777,449162,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        "NumGC":11,
+        "EnableGC":true,
+        "DebugGC":false,
+        "BySize":[{"Size":0,"Mallocs":0,"Frees":0},
+            {"Size":8,"Mallocs":702,"Frees":675},
+            {"Size":16,"Mallocs":6509,"Frees":6076},
+            {"Size":32,"Mallocs":3663,"Frees":3374},
+            {"Size":48,"Mallocs":2984,"Frees":2797},
+            {"Size":64,"Mallocs":314,"Frees":273},
+            {"Size":80,"Mallocs":3019,"Frees":2390},
+            {"Size":96,"Mallocs":537,"Frees":511},
+            {"Size":112,"Mallocs":381,"Frees":342},
+            {"Size":128,"Mallocs":394,"Frees":377},
+            {"Size":144,"Mallocs":2990,"Frees":2467},
+            {"Size":160,"Mallocs":227,"Frees":205},
+            {"Size":176,"Mallocs":477,"Frees":460},
+            {"Size":192,"Mallocs":404,"Frees":381},
+            {"Size":208,"Mallocs":502,"Frees":435},
+            {"Size":224,"Mallocs":37,"Frees":17},
+            {"Size":240,"Mallocs":15,"Frees":13},
+            {"Size":256,"Mallocs":11,"Frees":10},
+            {"Size":288,"Mallocs":477,"Frees":409},
+            {"Size":320,"Mallocs":26,"Frees":16},
+            {"Size":352,"Mallocs":296,"Frees":280},
+            {"Size":384,"Mallocs":0,"Frees":0},
+            {"Size":416,"Mallocs":32,"Frees":20},
+            {"Size":448,"Mallocs":190,"Frees":185},
+            {"Size":480,"Mallocs":1,"Frees":0},
+            {"Size":512,"Mallocs":12,"Frees":11},
+            {"Size":576,"Mallocs":113,"Frees":108},
+            {"Size":640,"Mallocs":4,"Frees":0},
+            {"Size":704,"Mallocs":9,"Frees":4},
+            {"Size":768,"Mallocs":3,"Frees":3},
+            {"Size":896,"Mallocs":24,"Frees":13},
+            {"Size":1024,"Mallocs":98,"Frees":91},
+            {"Size":1152,"Mallocs":110,"Frees":94},
+            {"Size":1280,"Mallocs":1,"Frees":1},
+            {"Size":1408,"Mallocs":5,"Frees":1},
+            {"Size":1536,"Mallocs":10,"Frees":10},
+            {"Size":1664,"Mallocs":15,"Frees":11},
+            {"Size":2048,"Mallocs":6,"Frees":3},
+            {"Size":2304,"Mallocs":97,"Frees":93},
+            {"Size":2560,"Mallocs":0,"Frees":0},
+            {"Size":2816,"Mallocs":0,"Frees":0},
+            {"Size":3072,"Mallocs":0,"Frees":0},
+            {"Size":3328,"Mallocs":111,"Frees":108},
+            {"Size":4096,"Mallocs":264,"Frees":251},
+            {"Size":4608,"Mallocs":89,"Frees":89},
+            {"Size":5376,"Mallocs":1,"Frees":0},
+            {"Size":6144,"Mallocs":0,"Frees":0},
+            {"Size":6400,"Mallocs":2,"Frees":0},
+            {"Size":6656,"Mallocs":0,"Frees":0},
+            {"Size":6912,"Mallocs":0,"Frees":0},
+            {"Size":8192,"Mallocs":16,"Frees":6},
+            {"Size":8448,"Mallocs":0,"Frees":0},
+            {"Size":8704,"Mallocs":0,"Frees":0},
+            {"Size":9472,"Mallocs":0,"Frees":0},
+            {"Size":10496,"Mallocs":0,"Frees":0},
+            {"Size":12288,"Mallocs":0,"Frees":0},
+            {"Size":13568,"Mallocs":0,"Frees":0},
+            {"Size":14080,"Mallocs":0,"Frees":0},
+            {"Size":16384,"Mallocs":1,"Frees":1},
+            {"Size":16640,"Mallocs":0,"Frees":0},
+            {"Size":17664,"Mallocs":0,"Frees":0}]},
+    "tailing":
+    [{"path":"/var/log/httpd/access_log","id":"2195172_64512","fields":{"rotated":"false","type":"access_log"}},{"path":"/var/log/httpd/error_log","id":"2195110_64512","fields":{"type":"error_log"}}]
+
+}
+```
+
 ## Questions and support
 
 If you have questions and cannot find answers, please join the #logstash irc
