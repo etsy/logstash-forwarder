@@ -39,7 +39,7 @@ enhancements over the upstream version:
   now uses multiple threads and workers.
 * Logfile output and HUP support. You can now log to a dedicated file, rather
   than stdout or syslog. Sending Lumberjack a HUP causes it to close and re-open
-  its file handles.
+  its own log file.
 * Management port and replay functionality. Lumberjack listens on a TCP port
   (default: 42586) and allows you to re-read log files and send them to
   Logstash.
