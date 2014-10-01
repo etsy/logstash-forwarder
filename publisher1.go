@@ -52,39 +52,39 @@ SENDING:
 		p.sequence += uint32(len(page))
 		compressed_payload := p.buffer.Bytes()
 
-                SENDPAYLOAD:
-	                if err := p.sendPayload(len(page), compressed_payload); err != nil {
-	                	input <- page
-	                	sleep := time.Duration(1e9 + rand.Intn(1e10))
-	                	log.Printf("Socket error, will reconnect in %v: %s\n", sleep, err)
-	                	time.Sleep(sleep)
-	                	if err := p.socket.Close(); err != nil {
-	                		log.Printf("unable to close connection to logstash server %s during sendpayload: %v\n", p.addr, err)
-	                	}
-	                	p.connect()
-	                	continue SENDING
-	                }
+	SENDPAYLOAD:
+		if err := p.sendPayload(len(page), compressed_payload); err != nil {
+			input <- page
+			sleep := time.Duration(1e9 + rand.Intn(1e10))
+			log.Printf("Socket error, will reconnect in %v: %s\n", sleep, err)
+			time.Sleep(sleep)
+			if err := p.socket.Close(); err != nil {
+				log.Printf("unable to close connection to logstash server %s during sendpayload: %v\n", p.addr, err)
+			}
+			p.connect()
+			continue SENDING
+		}
 
-	                // read ack
-	                response := make([]byte, 6)
-	                ackbytes := 0
-	                for ackbytes != 6 {
-	                	n, err := p.socket.Read(response)
-	                	if err != nil {
-	                		log.Printf("Read error after %d bytes looking for ack: %s\n", n, err)
-	                		log.Println("page will be re-sent")
-                                        log.Println("closing socket to %s", p.addr)
-	                		if err := p.socket.Close(); err != nil {
-	                			log.Printf("unable to close connection to logstash server %s during ack: %v\n", p.addr, err)
-	                		} else {
-	                			log.Printf("publisher closed connection to %s\n", p.addr)
-	                		}
-	                		p.connect()
-	                		goto SENDPAYLOAD
-	                	} else {
-	                		ackbytes += n
-	                	}
-	                }
+		// read ack
+		response := make([]byte, 6)
+		ackbytes := 0
+		for ackbytes != 6 {
+			n, err := p.socket.Read(response)
+			if err != nil {
+				log.Printf("Read error after %d bytes looking for ack: %s\n", n, err)
+				log.Println("page will be re-sent")
+				log.Println("closing socket to %s", p.addr)
+				if err := p.socket.Close(); err != nil {
+					log.Printf("unable to close connection to logstash server %s during ack: %v\n", p.addr, err)
+				} else {
+					log.Printf("publisher closed connection to %s\n", p.addr)
+				}
+				p.connect()
+				goto SENDPAYLOAD
+			} else {
+				ackbytes += n
+			}
+		}
 
 		// TODO(sissel): verify ack
 
