@@ -15,7 +15,6 @@ import (
 var hostname string
 
 func init() {
-	log.Printf("publisher init\n")
 	hostname, _ = os.Hostname()
 	rand.Seed(time.Now().UnixNano())
 }

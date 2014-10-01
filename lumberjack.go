@@ -158,8 +158,29 @@ func startHttp() {
 	}
 }
 
+// handles command line args.  That is, positional arguments, not flag
+// arguments.  This is for handling subcommands, which at the time of writing,
+// is just the ability to test a configuration file.
+func handleArgs() {
+	if flag.NArg() == 0 {
+		return
+	}
+
+	switch flag.Arg(0) {
+	case "test-config":
+		if flag.NArg() < 2 {
+			shutdown("not enough arguments specified for test-config")
+		}
+		testConfig(flag.Arg(1))
+	default:
+		shutdown(fmt.Sprintf("unrecognized positional arg: %v", flag.Arg(0)))
+	}
+}
+
 func main() {
 	flag.Parse()
+	handleArgs()
+
 	runtime.GOMAXPROCS(*num_threads)
 	setupLogging()
 	writePid()
@@ -170,7 +191,6 @@ func main() {
 
 	config, err := LoadConfig(*config_file)
 	if err != nil {
-		fmt.Println("one")
 		fmt.Println(err)
 		shutdown(err.Error())
 	}

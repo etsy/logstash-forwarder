@@ -157,6 +157,17 @@ func (j *shittyjoinspec) before(line string) bool {
 	return false
 }
 
+// attempts to load the configuration file.  If it's successful, it just exists
+// 0.  Otherwise, the error reason is printed to stderr and the program exits.
+func testConfig(path string) {
+	_, err := LoadConfig(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid config: %v", err)
+		os.Exit(1)
+	}
+	os.Exit(0)
+}
+
 func LoadConfig(path string) (*Config, error) {
 	f, err := os.Open(path)
 	if err != nil {
