@@ -172,7 +172,7 @@ func main() {
 	if err != nil {
 		fmt.Println("one")
 		fmt.Println(err)
-		log.Fatal(err.Error())
+		shutdown(err.Error())
 	}
 	registry = newRegistry(config)
 
@@ -181,7 +181,7 @@ func main() {
 	registrar_chan := make(chan eventPage, 1)
 
 	if len(config.Files) == 0 {
-		log.Fatalf("No paths given. What files do you want me to watch?\n")
+		shutdown("No paths given. What files do you want me to watch?\n")
 	}
 
 	go reportFSEvents()
@@ -207,7 +207,7 @@ func startCPUProfile() {
 	if *cpuprofile != "" {
 		f, err := os.Create(*cpuprofile)
 		if err != nil {
-			log.Fatal(err)
+			shutdown(err)
 		}
 		pprof.StartCPUProfile(f)
 		go func() {

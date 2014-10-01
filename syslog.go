@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"log/syslog"
 )
@@ -10,8 +11,7 @@ import (
 func configureSyslog() {
 	writer, err := syslog.New(syslog.LOG_INFO|syslog.LOG_DAEMON, "lumberjack")
 	if err != nil {
-		log.Fatalf("Failed to open syslog: %s\n", err)
-		return
+		shutdown(fmt.Sprintf("Failed to open syslog: %v\n", err))
 	}
 	log.SetOutput(writer)
 }
