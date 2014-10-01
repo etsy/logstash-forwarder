@@ -19,8 +19,6 @@ func init() {
 	rand.Seed(time.Now().UnixNano())
 }
 
-var publisherId = 0
-
 type Publisher struct {
 	id        int           // unique publisher id
 	buffer    bytes.Buffer  // recyclable buffer for data to be sent
@@ -39,6 +37,10 @@ func (p *Publisher) publish(input chan eventPage, registrar chan eventPage) {
 			log.Printf("unable to close connection to logstash server %s on publisher end: %v\n", p.addr, err)
 		}
 	}()
+
+	if input == nil {
+		log.Println("publisher input channel is nil you dummy")
+	}
 
 SENDING:
 	for page := range input {

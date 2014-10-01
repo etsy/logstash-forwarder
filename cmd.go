@@ -17,41 +17,56 @@ type cmd struct {
 	run  func([]string, io.Writer)
 }
 
-var replayCmd = cmd{
-	name: "replay",
-	run: func(args []string, w io.Writer) {
-		var offset int64
-		flags := flag.NewFlagSet("replay", flag.ContinueOnError)
-		flags.Int64Var(&offset, "offset", 0, "offset to read file from")
+func defineReplayCmd(conf *Config) {
+	replayCmd := cmd{
+		name: "replay",
+		run: func(args []string, w io.Writer) {
+			var offset int64
+			var dest string
+			flags := flag.NewFlagSet("replay", flag.ContinueOnError)
+			flags.Int64Var(&offset, "offset", 0, "offset to read file from")
+			flags.StringVar(&dest, "dest", "", "logstash server group destination")
 
-		if err := flags.Parse(args); err != nil {
-			fmt.Fprintf(w, "argument error: %v")
-			fmt.Fprintf(w, "usage: replay [filename] [offset]")
-			return
-		}
-		args = flags.Args()
-		if len(args) == 0 {
-			fmt.Fprintf(w, "usage: replay [filename] [--offset=N] [field1=value1 field2=value2 ... fieldN=valueN]\n")
-			return
-		}
-		for i, _ := range args {
-			args[i] = strings.TrimSpace(args[i])
-		}
-		fields := make(map[string]string, len(args)-1)
-		if len(args) > 1 {
-			for i := 1; i < len(args); i++ {
-				parts := strings.Split(args[i], "=")
-				if len(parts) != 2 {
-					fmt.Fprintf(w, "unable to parse field: %s", args[i])
-					return
-				}
-				fields[parts[0]] = strings.TrimSpace(parts[1])
+			if err := flags.Parse(args); err != nil {
+				fmt.Fprintf(w, "argument error: %v")
+				fmt.Fprintf(w, "usage: replay [filename] [offset]")
+				return
 			}
-		}
-		h := &Harvester{Path: args[0], Fields: fields, out: event_chan, join: nil}
-		fmt.Fprintln(w, "ok")
-		go h.Harvest(offset, h_Rewind)
-	},
+			args = flags.Args()
+			if len(args) == 0 {
+				fmt.Fprintf(w, "usage: replay [--offset=N] [--dest=...] [filename] [field1=value1 field2=value2 ... fieldN=valueN]\n")
+				return
+			}
+			for i, _ := range args {
+				args[i] = strings.TrimSpace(args[i])
+			}
+			fields := make(map[string]string, len(args)-1)
+			if len(args) > 1 {
+				for i := 1; i < len(args); i++ {
+					parts := strings.Split(args[i], "=")
+					if len(parts) != 2 {
+						fmt.Fprintf(w, "unable to parse field: %s", args[i])
+						return
+					}
+					fields[parts[0]] = strings.TrimSpace(parts[1])
+				}
+			}
+			var c chan *FileEvent
+			if dest != "" {
+				c = conf.Network.EventChan(dest)
+			} else {
+				c = conf.Network.EventChan(conf.FileDest(args[0]))
+			}
+			if c != nil {
+				fmt.Fprintf(w, "unable to get event chan for file path")
+				return
+			}
+			h := &Harvester{Path: args[0], Fields: fields, out: c, join: nil}
+			fmt.Fprintln(w, "ok")
+			go h.Harvest(offset, h_Rewind)
+		},
+	}
+	registerCmd(replayCmd)
 }
 
 var infoCmd = cmd{
@@ -129,6 +144,5 @@ func runCmd(conn net.Conn, line string) {
 }
 
 func init() {
-	registerCmd(replayCmd)
 	registerCmd(infoCmd)
 }

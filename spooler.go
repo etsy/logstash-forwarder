@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"time"
 )
 
@@ -36,6 +37,7 @@ func Spool(input chan *FileEvent,
 				var spoolcopy []*FileEvent
 				//fmt.Println(spool[0])
 				spoolcopy = append(spoolcopy, spool[:]...)
+
 				output <- spoolcopy
 				next_flush_time = time.Now().Add(idle_timeout)
 

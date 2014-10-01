@@ -39,7 +39,6 @@ var (
 	cmd_port        = flag.Int("cmd-port", 42586, "tcp command port number")
 	http_port       = flag.String("http", "", "http port for debug info. No http server is run if this is left off. E.g.: http=:6060")
 
-	event_chan       chan *FileEvent
 	registry         *hregistry
 	shutdownHandlers []func()
 	log_file_handle  *os.File
@@ -128,23 +127,26 @@ func shutdown(v interface{}) {
 	log.Fatal(v)
 }
 
-func startPublishers(conf NetworkConfig, in, out chan eventPage) error {
+var publisherId = 0
+
+func startPublishers(conf NetworkConfig, out chan eventPage) error {
 	for _, group := range conf {
 		tlsConfig, err := group.TLS()
 		if err != nil {
 			return fmt.Errorf("unable to start publishers: %v", err)
 		}
 
-		for i, server := range group.Servers {
+		for _, server := range group.Servers {
 			p := &Publisher{
-				id:        i,
+				id:        publisherId,
 				sequence:  1,
 				addr:      server,
 				tlsConfig: *tlsConfig,
 				timeout:   group.timeout,
 			}
 			log.Printf("TLS config: %v\n", tlsConfig)
-			go p.publish(in, out)
+			go p.publish(group.c_pages_unsent, out)
+			publisherId++
 		}
 	}
 	return nil
@@ -187,7 +189,6 @@ func main() {
 	runtime.GOMAXPROCS(*num_threads)
 	setupLogging()
 	writePid()
-	go cmdListener()
 	log.Println("lumberjack starting")
 
 	startCPUProfile()
@@ -197,10 +198,10 @@ func main() {
 		fmt.Println(err)
 		shutdown(err.Error())
 	}
+
+	go cmdListener()
 	registry = newRegistry(config)
 
-	event_chan = make(chan *FileEvent, 16)
-	publisher_chan := make(chan eventPage, 2*config.Network.NumServers())
 	registrar_chan := make(chan eventPage, 1)
 
 	if len(config.Files) == 0 {
@@ -210,13 +211,15 @@ func main() {
 	go reportFSEvents()
 	// Prospect the globs/paths given on the command line and launch harvesters
 	for _, fileconfig := range config.Files {
-		go Prospect(fileconfig, event_chan)
+		go Prospect(fileconfig, config.Network)
 	}
 
 	// Harvesters dump events into the spooler.
-	go Spool(event_chan, publisher_chan, *spool_size, *idle_timeout)
+	for _, group := range config.Network {
+		group.Spool()
+	}
 
-	if err := startPublishers(config.Network, publisher_chan, registrar_chan); err != nil {
+	if err := startPublishers(config.Network, registrar_chan); err != nil {
 		shutdown(err)
 	}
 

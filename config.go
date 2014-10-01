@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -17,10 +18,22 @@ type Config struct {
 	Files   []FileConfig  `json:files`
 }
 
+func (c *Config) FileDest(path string) string {
+	path = strings.TrimSpace(path)
+	for _, f := range c.Files {
+		for _, p := range f.Paths {
+			if path == strings.TrimSpace(p) {
+				return f.Dest
+			}
+		}
+	}
+	return "default"
+}
+
 type NetworkConfig map[string]NetworkGroup
 
 func (n NetworkConfig) UnmarshalJSON(data []byte) error {
-	var g NetworkGroup
+	g := NetworkGroup{c_events: make(chan *FileEvent, 16), c_pages_unsent: make(chan eventPage)}
 	if err := json.Unmarshal(data, &g); err == nil {
 		if g.Name != "" && g.Name != "default" {
 			return fmt.Errorf("you cannot config a single network group with a name other than default")
@@ -30,7 +43,7 @@ func (n NetworkConfig) UnmarshalJSON(data []byte) error {
 			g.Timeout = 15
 		}
 		g.timeout = time.Duration(g.Timeout) * time.Second
-		n["default"] = g
+		n[g.Name] = g
 		return nil
 	}
 
@@ -49,6 +62,12 @@ func (n NetworkConfig) UnmarshalJSON(data []byte) error {
 			g.Timeout = 15
 		}
 		g.timeout = time.Duration(g.Timeout) * time.Second
+		if g.c_events == nil {
+			g.c_events = make(chan *FileEvent, 16)
+		}
+		if g.c_pages_unsent == nil {
+			g.c_pages_unsent = make(chan eventPage)
+		}
 		n[g.Name] = g
 	}
 	return nil
@@ -62,6 +81,21 @@ func (n NetworkConfig) NumServers() int {
 	return count
 }
 
+func (n NetworkConfig) EventChan(name string) chan *FileEvent {
+	if name == "" {
+		name = "default"
+	}
+	group, ok := n[name]
+	if !ok {
+		log.Printf("ERROR unable to obtain event channel for name: %v", name)
+		return nil
+	}
+	if group.c_events == nil {
+		group.c_events = make(chan *FileEvent, 16)
+	}
+	return group.c_events
+}
+
 type NetworkGroup struct {
 	Name           string   `json:"name"`
 	Servers        []string `json:servers`
@@ -70,6 +104,13 @@ type NetworkGroup struct {
 	SSLCA          string   `json:"ssl ca"`
 	Timeout        int64    `json:timeout`
 	timeout        time.Duration
+
+	c_events       chan *FileEvent // incoming file events
+	c_pages_unsent chan eventPage  // pages of events to be sent
+}
+
+func (n *NetworkGroup) Spool() {
+	go Spool(n.c_events, n.c_pages_unsent, *spool_size, *idle_timeout)
 }
 
 func (n *NetworkGroup) TLS() (*tls.Config, error) {
@@ -100,6 +141,7 @@ type FileConfig struct {
 	Paths  []string          `json:paths`
 	Fields map[string]string `json:fields`
 	Join   joinspec          `json:join`
+	Dest   string            `json:"dest"`
 }
 
 type joinspec []joinspecElem

@@ -8,7 +8,13 @@ import (
 )
 
 // finds files in paths/globs to harvest, starts harvesters
-func Prospect(fileconfig FileConfig, output chan *FileEvent) {
+func Prospect(fileconfig FileConfig, netconf NetworkConfig) {
+	out := netconf.EventChan(fileconfig.Dest)
+	if out == nil {
+		log.Printf("ERROR unable to start prospector for %v: no event channel", fileconfig.Paths)
+		return
+	}
+
 	// Handle any "-" (stdin) paths
 	for i, path := range fileconfig.Paths {
 		if path == "-" {
@@ -16,7 +22,7 @@ func Prospect(fileconfig FileConfig, output chan *FileEvent) {
 				Path:   path,
 				Fields: fileconfig.Fields,
 				join:   fileconfig.Join,
-				out:    output,
+				out:    out,
 			}
 			go harvester.Harvest(0, 0)
 
@@ -27,11 +33,11 @@ func Prospect(fileconfig FileConfig, output chan *FileEvent) {
 
 	// Use the registrar db to reopen any files at their last positions
 	fileinfo := make(map[string]os.FileInfo)
-	resume_tracking(fileconfig, fileinfo, output)
+	resume_tracking(fileconfig, fileinfo, out)
 
 	for {
 		for _, path := range fileconfig.Paths {
-			prospector_scan(path, &fileconfig, fileinfo, output)
+			prospector_scan(path, &fileconfig, fileinfo, out)
 		}
 
 		// Defer next scan for a bit.
