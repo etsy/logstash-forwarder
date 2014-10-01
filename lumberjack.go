@@ -128,21 +128,24 @@ func shutdown(v interface{}) {
 	log.Fatal(v)
 }
 
-func startPublishers(conf *NetworkConfig, in, out chan eventPage) error {
-	tlsConfig, err := conf.TLS()
-	if err != nil {
-		return fmt.Errorf("unable to start publishers: %v", err)
-	}
-
-	for i, server := range conf.Servers {
-		p := &Publisher{
-			id:        i,
-			sequence:  1,
-			addr:      server,
-			tlsConfig: *tlsConfig,
-			timeout:   conf.timeout,
+func startPublishers(conf NetworkConfig, in, out chan eventPage) error {
+	for _, group := range conf {
+		tlsConfig, err := group.TLS()
+		if err != nil {
+			return fmt.Errorf("unable to start publishers: %v", err)
 		}
-		go p.publish(in, out)
+
+		for i, server := range group.Servers {
+			p := &Publisher{
+				id:        i,
+				sequence:  1,
+				addr:      server,
+				tlsConfig: *tlsConfig,
+				timeout:   group.timeout,
+			}
+			log.Printf("TLS config: %v\n", tlsConfig)
+			go p.publish(in, out)
+		}
 	}
 	return nil
 }
@@ -197,7 +200,7 @@ func main() {
 	registry = newRegistry(config)
 
 	event_chan = make(chan *FileEvent, 16)
-	publisher_chan := make(chan eventPage, 2*len(config.Network.Servers))
+	publisher_chan := make(chan eventPage, 2*config.Network.NumServers())
 	registrar_chan := make(chan eventPage, 1)
 
 	if len(config.Files) == 0 {
@@ -213,7 +216,7 @@ func main() {
 	// Harvesters dump events into the spooler.
 	go Spool(event_chan, publisher_chan, *spool_size, *idle_timeout)
 
-	if err := startPublishers(&config.Network, publisher_chan, registrar_chan); err != nil {
+	if err := startPublishers(config.Network, publisher_chan, registrar_chan); err != nil {
 		shutdown(err)
 	}
 

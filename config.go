@@ -17,22 +17,53 @@ type Config struct {
 	Files   []FileConfig  `json:files`
 }
 
-func (c *Config) UnmarshalJSON(b []byte) error {
-	type t Config
-	var raw t
-	if err := json.Unmarshal(b, &raw); err != nil {
-		return err
+type NetworkConfig map[string]NetworkGroup
+
+func (n NetworkConfig) UnmarshalJSON(data []byte) error {
+	var g NetworkGroup
+	if err := json.Unmarshal(data, &g); err == nil {
+		if g.Name != "" && g.Name != "default" {
+			return fmt.Errorf("you cannot config a single network group with a name other than default")
+		}
+		g.Name = "default"
+		if g.Timeout == 0 {
+			g.Timeout = 15
+		}
+		g.timeout = time.Duration(g.Timeout) * time.Second
+		n["default"] = g
+		return nil
 	}
 
-	*c = Config(raw)
-	if c.Network.Timeout == 0 {
-		c.Network.Timeout = 15
+	var groups []NetworkGroup
+	if err := json.Unmarshal(data, &groups); err != nil {
+		return fmt.Errorf("invalid NetworkConfig: %v", err)
 	}
-	c.Network.timeout = time.Duration(c.Network.Timeout) * time.Second
+	for _, g := range groups {
+		if g.Name == "" {
+			g.Name = "default"
+		}
+		if _, ok := n[g.Name]; ok {
+			return fmt.Errorf("duplicate NetworkGroup name: %s", g.Name)
+		}
+		if g.Timeout == 0 {
+			g.Timeout = 15
+		}
+		g.timeout = time.Duration(g.Timeout) * time.Second
+		n[g.Name] = g
+	}
 	return nil
 }
 
-type NetworkConfig struct {
+func (n NetworkConfig) NumServers() int {
+	count := 0
+	for _, group := range n {
+		count += len(group.Servers)
+	}
+	return count
+}
+
+type NetworkGroup struct {
+	Name           string   `json:"name"`
 	Servers        []string `json:servers`
 	SSLCertificate string   `json:"ssl certificate"`
 	SSLKey         string   `json:"ssl key"`
@@ -41,7 +72,7 @@ type NetworkConfig struct {
 	timeout        time.Duration
 }
 
-func (n *NetworkConfig) TLS() (*tls.Config, error) {
+func (n *NetworkGroup) TLS() (*tls.Config, error) {
 	var c tls.Config
 	c.InsecureSkipVerify = true
 	if n.SSLCertificate != "" && n.SSLKey != "" {
@@ -184,7 +215,7 @@ func LoadConfig(path string) (*Config, error) {
 			path, fi)
 	}
 
-	var conf Config
+	conf := Config{Network: make(NetworkConfig)}
 	if err := json.NewDecoder(f).Decode(&conf); err != nil {
 		return nil, fmt.Errorf("failed unmarshalling config json: %s\n", err)
 	}
