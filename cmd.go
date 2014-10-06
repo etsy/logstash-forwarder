@@ -89,7 +89,7 @@ func registerCmd(c cmd) {
 }
 
 func cmdListener() {
-	l, err := net.Listen("tcp", fmt.Sprintf(":%d", *cmd_port))
+	l, err := net.Listen("tcp", fmt.Sprintf(":%d", options.CmdPort))
 	if err != nil {
 		log.Println("unable to open command port: %v", err)
 		return

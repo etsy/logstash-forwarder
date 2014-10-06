@@ -283,7 +283,7 @@ func (h *Harvester) open(offset int64, opt int) *os.File {
 	if offset > 0 {
 		h.file.Seek(offset, os.SEEK_SET)
 		log.Printf("reading from %d: %s", offset, h.Path)
-	} else if *from_beginning || opt&h_Rewind > 0 {
+	} else if options.FromBeginning || opt&h_Rewind > 0 {
 		h.file.Seek(0, os.SEEK_SET)
 		log.Printf("reading from beginning: %s", h.Path)
 	} else {

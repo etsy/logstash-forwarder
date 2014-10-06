@@ -47,7 +47,7 @@ func Prospect(fileconfig FileConfig, netconf NetworkConfig) {
 
 func resume_tracking(fileconfig FileConfig, fileinfo map[string]os.FileInfo, output chan *FileEvent) {
 	var p progress
-	if err := p.load(*history_path); err != nil {
+	if err := p.load(options.HistoryPath); err != nil {
 		log.Printf("unable to load lumberjack progress file: %s", err.Error())
 		return
 	}

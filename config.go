@@ -110,7 +110,7 @@ type NetworkGroup struct {
 }
 
 func (n *NetworkGroup) Spool() {
-	go Spool(n.c_events, n.c_pages_unsent, *spool_size, *idle_timeout)
+	go Spool(n.c_events, n.c_pages_unsent, options.SpoolSize, options.IdleTimeout)
 }
 
 func (n *NetworkGroup) TLS() (*tls.Config, error) {

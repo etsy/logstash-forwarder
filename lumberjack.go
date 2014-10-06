@@ -23,22 +23,6 @@ import (
 )
 
 var (
-	default_workers = runtime.NumCPU() * 2
-	cpuprofile      = flag.String("cpuprofile", "", "write cpu profile to file")
-	spool_size      = flag.Uint64("spool-size", 1024, "Maximum number of events to spool before a flush is forced.")
-	num_workers     = flag.Int("num-workers", default_workers, "Number of concurrent publish workers. Defaults to 2*CPU")
-	idle_timeout    = flag.Duration("idle-flush-time", 5*time.Second, "Maximum time to wait for a full spool before flushing anyway")
-	config_file     = flag.String("config", "", "The config file to load")
-	log_file_path   = flag.String("log-file", "", "Log file output")
-	pid_file_path   = flag.String("pid-file", "lumberjack.pid", "destination to which a pidfile will be written")
-	use_syslog      = flag.Bool("log-to-syslog", false, "Log to syslog instead of stdout. This option overrides the --log-file option.")
-	from_beginning  = flag.Bool("from-beginning", false, "Read new files from the beginning, instead of the end")
-	history_path    = flag.String("progress-file", ".lumberjack", "path of file used to store progress data")
-	temp_dir        = flag.String("temp-dir", "/tmp", "directory for creating temp files")
-	num_threads     = flag.Int("threads", 1, "Number of OS threads to use")
-	cmd_port        = flag.Int("cmd-port", 42586, "tcp command port number")
-	http_port       = flag.String("http", "", "http port for debug info. No http server is run if this is left off. E.g.: http=:6060")
-
 	registry         *hregistry
 	shutdownHandlers []func()
 	log_file_handle  *os.File
@@ -47,10 +31,10 @@ var (
 // creates a file and writes the current process's pid into that file.  The
 // file name is specified on the command line.
 func writePid() {
-	if *pid_file_path == "" {
+	if options.PidFile == "" {
 		return
 	}
-	f, err := os.OpenFile(*pid_file_path, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0644)
+	f, err := os.OpenFile(options.PidFile, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0644)
 	if err != nil {
 		log.Printf("ERROR unable to open pidfile: %v", err)
 		return
@@ -61,10 +45,10 @@ func writePid() {
 
 // removes pidfile from disk
 func rmPidfile() {
-	if *pid_file_path == "" {
+	if options.PidFile == "" {
 		return
 	}
-	os.Remove(*pid_file_path)
+	os.Remove(options.PidFile)
 }
 
 func awaitSignals() {
@@ -83,11 +67,11 @@ func awaitSignals() {
 }
 
 func refreshLogfileHandle() {
-	if *log_file_path == "" {
+	if options.LogFile == "" {
 		return
 	}
 
-	f, err := os.OpenFile(*log_file_path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(options.LogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Printf("unable to open logfile destination: %v", err)
 	} else {
@@ -103,9 +87,9 @@ func refreshLogfileHandle() {
 
 func setupLogging() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
-	if *use_syslog {
+	if options.UseSyslog {
 		configureSyslog()
-	} else if *log_file_path != "" {
+	} else if options.LogFile != "" {
 		refreshLogfileHandle()
 	}
 }
@@ -153,9 +137,9 @@ func startPublishers(conf NetworkConfig, out chan eventPage) error {
 }
 
 func startHttp() {
-	if *http_port != "" {
-		log.Printf("starting http debug port on %s", *http_port)
-		if err := http.ListenAndServe(*http_port, nil); err != nil {
+	if options.HttpPort != "" {
+		log.Printf("starting http debug port on %s", options.HttpPort)
+		if err := http.ListenAndServe(options.HttpPort, nil); err != nil {
 			log.Printf("unable to open http port: %v", err)
 		}
 	} else {
@@ -186,14 +170,14 @@ func main() {
 	flag.Parse()
 	handleArgs()
 
-	runtime.GOMAXPROCS(*num_threads)
+	runtime.GOMAXPROCS(options.NumThreads)
 	setupLogging()
 	writePid()
 	log.Println("lumberjack starting")
 
 	startCPUProfile()
 
-	config, err := LoadConfig(*config_file)
+	config, err := LoadConfig(options.ConfigFile)
 	if err != nil {
 		fmt.Println(err)
 		shutdown(err.Error())
@@ -230,8 +214,8 @@ func main() {
 }
 
 func startCPUProfile() {
-	if *cpuprofile != "" {
-		f, err := os.Create(*cpuprofile)
+	if options.CPUProfile != "" {
+		f, err := os.Create(options.CPUProfile)
 		if err != nil {
 			shutdown(err)
 		}

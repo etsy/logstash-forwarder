@@ -26,7 +26,7 @@ func loadRegistry(fname string) (map[string]*FileState, error) {
 }
 
 func (p *progress) writeFile(path string) error {
-	f, err := ioutil.TempFile(*temp_dir, "lumberjack")
+	f, err := ioutil.TempFile(options.TempDir, "lumberjack")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file for writing: %s\n", err)
 	}
@@ -50,7 +50,7 @@ func (p *progress) writeFile(path string) error {
 	if err := json.NewEncoder(f).Encode(existing); err != nil {
 		return fmt.Errorf("failed to write log state to file: %v", err)
 	}
-	if err := os.Rename(filepath.Join(*temp_dir, fi.Name()), path); err != nil {
+	if err := os.Rename(filepath.Join(options.TempDir, fi.Name()), path); err != nil {
 		return fmt.Errorf("failed to move log state file: %v", err)
 	}
 	return nil
