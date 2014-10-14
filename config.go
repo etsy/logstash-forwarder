@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -17,31 +18,102 @@ type Config struct {
 	Files   []FileConfig  `json:files`
 }
 
-func (c *Config) UnmarshalJSON(b []byte) error {
-	type t Config
-	var raw t
-	if err := json.Unmarshal(b, &raw); err != nil {
-		return err
+func (c *Config) FileDest(path string) string {
+	path = strings.TrimSpace(path)
+	for _, f := range c.Files {
+		for _, p := range f.Paths {
+			if path == strings.TrimSpace(p) {
+				return f.Dest
+			}
+		}
+	}
+	return "default"
+}
+
+type NetworkConfig map[string]NetworkGroup
+
+func (n NetworkConfig) UnmarshalJSON(data []byte) error {
+	g := NetworkGroup{c_events: make(chan *FileEvent, 16), c_pages_unsent: make(chan eventPage)}
+	if err := json.Unmarshal(data, &g); err == nil {
+		if g.Name != "" && g.Name != "default" {
+			return fmt.Errorf("you cannot config a single network group with a name other than default")
+		}
+		g.Name = "default"
+		if g.Timeout == 0 {
+			g.Timeout = 15
+		}
+		g.timeout = time.Duration(g.Timeout) * time.Second
+		n[g.Name] = g
+		return nil
 	}
 
-	*c = Config(raw)
-	if c.Network.Timeout == 0 {
-		c.Network.Timeout = 15
+	var groups []NetworkGroup
+	if err := json.Unmarshal(data, &groups); err != nil {
+		return fmt.Errorf("invalid NetworkConfig: %v", err)
 	}
-	c.Network.timeout = time.Duration(c.Network.Timeout) * time.Second
+	for _, g := range groups {
+		if g.Name == "" {
+			g.Name = "default"
+		}
+		if _, ok := n[g.Name]; ok {
+			return fmt.Errorf("duplicate NetworkGroup name: %s", g.Name)
+		}
+		if g.Timeout == 0 {
+			g.Timeout = 15
+		}
+		g.timeout = time.Duration(g.Timeout) * time.Second
+		if g.c_events == nil {
+			g.c_events = make(chan *FileEvent, 16)
+		}
+		if g.c_pages_unsent == nil {
+			g.c_pages_unsent = make(chan eventPage)
+		}
+		n[g.Name] = g
+	}
 	return nil
 }
 
-type NetworkConfig struct {
+func (n NetworkConfig) NumServers() int {
+	count := 0
+	for _, group := range n {
+		count += len(group.Servers)
+	}
+	return count
+}
+
+func (n NetworkConfig) EventChan(name string) chan *FileEvent {
+	if name == "" {
+		name = "default"
+	}
+	group, ok := n[name]
+	if !ok {
+		log.Printf("ERROR unable to obtain event channel for name: %v", name)
+		return nil
+	}
+	if group.c_events == nil {
+		group.c_events = make(chan *FileEvent, 16)
+	}
+	return group.c_events
+}
+
+type NetworkGroup struct {
+	Name           string   `json:"name"`
 	Servers        []string `json:servers`
 	SSLCertificate string   `json:"ssl certificate"`
 	SSLKey         string   `json:"ssl key"`
 	SSLCA          string   `json:"ssl ca"`
 	Timeout        int64    `json:timeout`
 	timeout        time.Duration
+
+	c_events       chan *FileEvent // incoming file events
+	c_pages_unsent chan eventPage  // pages of events to be sent
 }
 
-func (n *NetworkConfig) TLS() (*tls.Config, error) {
+func (n *NetworkGroup) Spool() {
+	go Spool(n.c_events, n.c_pages_unsent, options.SpoolSize, options.IdleTimeout)
+}
+
+func (n *NetworkGroup) TLS() (*tls.Config, error) {
 	var c tls.Config
 	c.InsecureSkipVerify = true
 	if n.SSLCertificate != "" && n.SSLKey != "" {
@@ -69,6 +141,7 @@ type FileConfig struct {
 	Paths  []string          `json:paths`
 	Fields map[string]string `json:fields`
 	Join   joinspec          `json:join`
+	Dest   string            `json:"dest"`
 }
 
 type joinspec []joinspecElem
@@ -157,6 +230,17 @@ func (j *shittyjoinspec) before(line string) bool {
 	return false
 }
 
+// attempts to load the configuration file.  If it's successful, it just exists
+// 0.  Otherwise, the error reason is printed to stderr and the program exits.
+func testConfig(path string) {
+	_, err := LoadConfig(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid config: %v", err)
+		os.Exit(1)
+	}
+	os.Exit(0)
+}
+
 func LoadConfig(path string) (*Config, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -173,7 +257,7 @@ func LoadConfig(path string) (*Config, error) {
 			path, fi)
 	}
 
-	var conf Config
+	conf := Config{Network: make(NetworkConfig)}
 	if err := json.NewDecoder(f).Decode(&conf); err != nil {
 		return nil, fmt.Errorf("failed unmarshalling config json: %s\n", err)
 	}

@@ -92,7 +92,5 @@ func init() {
 	if err != nil {
 		log.Printf("unable to start watcher: %s", err.Error())
 		return
-	} else {
-		log.Println("watcher is waiting")
 	}
 }
