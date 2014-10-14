@@ -47,6 +47,52 @@ enhancements over the upstream version:
   overwritten or not written to correctly have been fixed.
 * An HTTP port which exposes expvar (http://golang.org/pkg/expvar/) data on
   memory use, and the state of files which are currently being followed.
+* Sending logs to different logstash servers. Lumberjack now supports multiple
+  destinations. This allows you to send logs to different Logstash clusters. The
+  configuration file with this feature looks like:
+
+```
+{
+    "files": [
+        {
+            "paths": ["/var/log/httpd/access_log"],
+            "fields": { "type": "access_log" }
+        }, 
+        {
+            "paths": ["/var/log/httpd/error_log"],
+            "fields": { "type": "error_log" },
+            "dest": "one"
+        },
+        {
+            "paths": ["/var/log/app.log"],
+            "fields": { "type": "app_log" },
+            "dest": "two"
+        }
+    ],
+    "network": [
+        {
+            "servers": [ "logstash-default:9991"],
+            "ssl ca": "/etc/pki/logstash/lumberjack.crt"
+        },
+        {
+            "name": "one",
+            "servers": ["logstash-one:9991"],
+            "ssl ca": "/etc/pki/logstash/lumberjack.crt"
+        },
+        {
+            "name": "two",
+            "servers": ["logstash-two:9991"],
+            "ssl ca": "/etc/pki/logstash/lumberjack.crt"
+        }
+    ]
+}
+```
+
+Files take an optional `dest` parameter, which corresponds to the name in the
+`network` section.
+One of the groups of servers under the `network` section should be left without
+a name - this will be given the name `default`. Any files which do not have a
+destination, will be sent to the default servers.
 
 ### New requirements
 
