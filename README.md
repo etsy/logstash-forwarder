@@ -40,9 +40,6 @@ enhancements over the upstream version:
 * Logfile output and HUP support. You can now log to a dedicated file, rather
   than stdout or syslog. Sending Lumberjack a HUP causes it to close and re-open
   its own log file.
-* Management port and replay functionality. Lumberjack listens on a TCP port
-  (default: 42586) and allows you to re-read log files and send them to
-  Logstash.
 * State file handling. A few cases which caused the state file to get
   overwritten or not written to correctly have been fixed.
 * An HTTP port which exposes expvar (http://golang.org/pkg/expvar/) data on
@@ -121,18 +118,6 @@ Example:
         -progress-file /var/run/.lumberjack -pid-file /var/run/lumberjack.pid \
         -log-file /var/log/lumberjack.log -temp-dir /var/run
 ```
-
-### Replaying existing log files
-
-```
-nc localhost 42586
-replay
-usage: replay [filename] [--offset=N] [field1=value1 field2=value2 ... fieldN=valueN]
-replay /path/to/file.log type=awesome_log
-```
-
-No further output is provided here, you can look at the output log to see
-Lumberjack tailing your file.
 
 ### Getting expvar data
 
