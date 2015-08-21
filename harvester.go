@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -82,35 +83,85 @@ func (h *Harvester) readlines(timeout time.Duration) {
 		return
 	}
 
+	var fragment bytes.Buffer
+	eof_attempts := 0
+
+	type Newline int8
+	const (
+		UNKNOWN Newline = -1 + iota
+		NO
+		YES
+	)
+
+	purgeFragment := func(hasNewline Newline) {
+		if fragment.Len() > 0 {
+			if hasNewline == UNKNOWN {
+				if bytes.IndexByte(fragment.Bytes(), '\n') == -1 {
+					hasNewline = NO
+				} else {
+					hasNewline = YES
+				}
+			}
+
+			if hasNewline == YES {
+				h.emit(fragment.Bytes(), offset)
+			} else {
+				h.emit(fragment.Bytes(), offset-1)
+			}
+			offset += int64(fragment.Len())
+			fragment.Reset()
+			eof_attempts = 0
+		}
+	}
+	defer purgeFragment(UNKNOWN)
+
 	for {
 		h.lastRead = time.Now()
 		line, err := r.ReadBytes('\n')
+		preFragLen := fragment.Len()
+		fragment.Write(line)
 		switch err {
 		case io.EOF:
+			eof_attempts++
+
 			if len(line) > 0 {
-				log.Printf("harvester hit EOF in %s with line", h.Path)
-				h.emit(line, offset)
-				time.Sleep(1 * time.Second)
-				break
+				if preFragLen == 0 {
+					// Since the buffer was empty, reset attempts so we get a full 10s
+					eof_attempts = 0
+				}
+
+				log.Printf("harvester hit EOF in %s with line. EOF attempt: %d", h.Path, eof_attempts)
 			}
 			if rewound, err := h.autoRewind(offset, line); err != nil {
 				log.Printf("harvester for file %s stopping: %v", h.Path, err)
 				return
 			} else if rewound {
+				log.Printf("harvester for file %s rewound", h.Path)
 				offset = 0
 			}
 			if time.Since(h.lastRead) > timeout {
 				log.Printf("harvester timed out: %s", h.Path)
 				return
 			}
+
+			if eof_attempts >= 10 {
+				if fragment.Len() > 0 {
+					// Just emit what we have.
+					// The offset is reduced by 1 because there's no trailing
+					// '\n' character in this case.
+					log.Printf("harvester purging buffer without newline in %s after %d attempts", h.Path, eof_attempts)
+					purgeFragment(NO)
+				}
+
+				eof_attempts = 0
+			}
 			time.Sleep(1 * time.Second)
 		case nil:
-			h.emit(line, offset)
+			purgeFragment(YES)
 		default:
 			log.Printf("unable to read line in harvester: %v", err)
 			return
 		}
-		offset += int64(len(line))
 	}
 }
 
