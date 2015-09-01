@@ -210,7 +210,8 @@ func (h *Harvester) emit(line []byte, offset int64) {
 	if len(h.lastLine) > 0 {
 		h.out <- h.event(string(h.lastLine[:]), h.lastOffset)
 	}
-	h.lastLine = line
+	h.lastLine = make([]byte, len(line))
+        copy(h.lastLine, line)
 	h.lastOffset = offset
 }
 
